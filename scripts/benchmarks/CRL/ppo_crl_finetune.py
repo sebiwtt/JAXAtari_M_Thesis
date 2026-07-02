@@ -1,11 +1,40 @@
-"""PPO training entrypoint for the Continual RL fine-tuning suite.
 
-Adapted from CleanRL's ppo_atari_envpool_xla_jax_scan.py for JaxAtari. The whole
-rollout + PPO update pipeline is written as JAX-jitted / scanned functions so that a
-full training iteration runs as one XLA program on the accelerator.
+# =============================================================================
+# PPO trainer for JAXtari  (single-agent, on-policy, fully jitted)
+# =============================================================================
+# Provenance: adapted from CleanRL's `ppo_atari_envpool_xla_jax_scan.py`
+#   https://github.com/vwxyzjn/cleanrl/blob/master/cleanrl/ppo_atari_envpool_xla_jax_scan.py
+#
+# ---------------------------------------------------------------------------
+# HIGH-LEVEL PIPELINE (one call to `single_run`):
+#
+#   config  ──▶ derive BATCH/MINIBATCH/ITERATION sizes, init wandb, seed RNG
+#           ──▶ build wrapped vectorised env (pixel CNN path or object-centric MLP path)
+#           ──▶ build agent = shared torso (Network/MLP_Network) + Actor head + Critic head
+#           ──▶ for iteration in 1..NUM_ITERATIONS:
+#                   rollout      : scan `step_once` for NUM_STEPS  -> Storage(T, NUM_ENVS, ...)
+#                   compute_gae  : reverse scan -> advantages, returns
+#                   update_ppo   : UPDATE_EPOCHS x (shuffle -> NUM_MINIBATCHES gradient steps)
+#                   log metrics  : wandb
+#
+# The agent is a SHARED feature torso feeding two independent linear heads.
+# Parameters are carried explicitly as AgentParams(network, actor, critic) so
+# they can be differentiated / masked / regularised as one pytree.
+#
+# ---------------------------------------------------------------------------
+# CL-BASELINE INJECTION POINTS 
+#   * EWC (regularisation) -> add a penalty term inside `ppo_loss`.
+#   * A-GEM (replay)       -> intercept `grads` in `update_minibatch`, project
+#                             them against a reference gradient before
+#                             `apply_gradients`.
+#   * PackNet (arch.)      -> mask/prune over the `AgentParams` pytree; note the
+#                             single-head Actor (constant action dim across
+#                             intra-Pong mods) vs. PackNet's usual multi-head
+#                             assumption.
+# These are flagged again inline at the exact spots below.
+# =============================================================================
 
-Usage: `uv run scripts/benchmarks/CRL/ppo_crl_finetune.py +alg=ppo_crl_finetune`
-"""
+
 import os
 import random
 import time
@@ -31,17 +60,14 @@ from video_utils import generate_final_video, log_periodic_eval_video
 
 from rtpt import RTPT
 
+# =============================================================================
+# ENVIRONMENT FACTORY
+# =============================================================================
+# Returns a *thunk* (zero-arg closure) that builds one fully wrapped env.
+# The thunk pattern mirrors Gym's vector-env constructors; here the env is
+# jittable and later vmapped over NUM_ENVS rather than process-parallelised.
 
 def make_env(env_id, seed, num_envs, mods=[], pixel_based=True, native_downscaling=True, smooth_image=True, eval=False):
-    """Build a thunk that constructs one (wrapped) JaxAtari environment.
-
-    `mods` are the CRL task modifications (e.g. altered physics/rules) applied on top
-    of the base game. During training we only ever want a single active mod at a time
-    (or none), so if more than one is passed while `eval=False` we silently fall back
-    to the unmodified base environment - the caller is expected to train sequentially
-    on one mod per phase. During evaluation the caller is trusted to pass exactly the
-    mod (or list of mods) it wants, since this is also used for per-mod video capture.
-    """
     def thunk():
         active_mods = mods
         if not eval and isinstance(active_mods, (list, tuple)) and len(active_mods) > 1:
@@ -53,7 +79,12 @@ def make_env(env_id, seed, num_envs, mods=[], pixel_based=True, native_downscali
         else:
             mods_arg = active_mods
 
+        # Base JAXtari environment (source-level modifiable, JAX-native).
         env = jaxatari.make(env_id, mods=mods_arg)
+
+        # Atari-standard preprocessing shared by both observation modalities.
+        # episodic_life and reward clipping are TRAIN-only conveniences; eval
+        # runs see the true episode boundaries / unclipped reward.
         env = AtariWrapper(
                 env,
                 sticky_actions=0.0,
@@ -96,10 +127,15 @@ def make_env(env_id, seed, num_envs, mods=[], pixel_based=True, native_downscali
         return env
     return thunk
 
+# =============================================================================
+# NEURAL NETWORKS
+# =============================================================================
+# The agent is a shared TORSO (Network or MLP_Network, output dim 512) plus two
+# tiny linear HEADS (Actor, Critic). Keeping the torso separate lets pixel and
+# OC agents swap only the torso while reusing identical heads and loss code.
 
+# ---- Pixel torso: the canonical Nature-CNN feature extractor. --------------
 class Network(nn.Module):
-    """CNN encoder (Nature-DQN style) used for pixel-based observations."""
-
     @nn.compact
     def __call__(self, x):
         x = jnp.transpose(x, (0, 2, 3, 1))  # (B, F, H, W) -> (B, H, W, F) for conv
@@ -137,13 +173,10 @@ class Network(nn.Module):
         return x
 
 
+# ---- Object-centric torso: a 2-layer MLP producing the same 512-d output. --
+# The final width (512) and trailing ReLU deliberately match the CNN so that
+# Actor/Critic heads are byte-for-byte interchangeable between modalities.
 class MLP_Network(nn.Module):
-    """MLP encoder used for object-centric (flattened feature vector) observations.
-
-    Mirrors the output width (512) of `Network` above so `Actor`/`Critic` can sit on
-    top of either encoder unchanged.
-    """
-
     @nn.compact
     def __call__(self, x):
         x = nn.Dense(
@@ -160,18 +193,15 @@ class MLP_Network(nn.Module):
         x = nn.relu(x)
         return x
 
-
+# ---- Critic head: torso features -> scalar state value V(s). ---------------
 class Critic(nn.Module):
-    """Value head: maps encoder features to a scalar state-value estimate."""
 
     @nn.compact
     def __call__(self, x):
         return nn.Dense(1, kernel_init=orthogonal(1), bias_init=constant(0.0))(x)
 
-
+# ---- Actor head: torso features -> action logits. --------------------------
 class Actor(nn.Module):
-    """Policy head: maps encoder features to per-action logits."""
-
     action_dim: Sequence[int]
 
     @nn.compact
@@ -179,12 +209,23 @@ class Actor(nn.Module):
         return nn.Dense(self.action_dim, kernel_init=orthogonal(0.01), bias_init=constant(0.0))(x)
 
 
+# =============================================================================
+# PARAMETER + ROLLOUT CONTAINERS
+# =============================================================================
+# The whole agent's trainable state as ONE pytree. This is the object a PackNet
+# mask or an EWC Fisher diagonal would be defined over, and what
+# `jax.value_and_grad` differentiates.
+
 class AgentParams(NamedTuple):
     """Bundles the three sets of params so a single `TrainState` can hold/update all of them."""
     network_params: flax.core.FrozenDict
     actor_params: flax.core.FrozenDict
     critic_params: flax.core.FrozenDict
 
+# On-policy rollout buffer. Every field is stacked along a leading time axis of
+# length NUM_STEPS by the rollout scan, giving shape (NUM_STEPS, NUM_ENVS, ...).
+# advantages/returns are filled with zeros during rollout and overwritten by
+# compute_gae afterwards.
 
 @flax.struct.dataclass
 class Storage:
@@ -198,17 +239,11 @@ class Storage:
     returns: jnp.array
     rewards: jnp.array
 
-
-@flax.struct.dataclass
-class EpisodeStatistics:
-    episode_returns: jnp.array
-    episode_lengths: jnp.array
-    returned_episode_returns: jnp.array
-    returned_episode_lengths: jnp.array
-
+# =============================================================================
+# MAIN ENTRY: one full training run for a single (env, modality, seed) config
+# =============================================================================
 
 def single_run(config: dict):
-    """Run one full PPO training job (one seed, one env/mod configuration) end-to-end."""
     # Hydra gives us the alg sub-config nested under "alg"; flatten it into one dict of
     # UPPER_CASE keys, which is what the rest of this function expects.
     config = {k.upper(): v for k, v in config.items() if k != "alg"}
@@ -220,6 +255,9 @@ def single_run(config: dict):
 
     # Derived sizes: how many env-steps make up one PPO iteration/minibatch, and how
     # many iterations are needed to reach TOTAL_TIMESTEPS.
+    #   BATCH_SIZE     = experience collected per iteration (steps x envs)
+    #   MINIBATCH_SIZE = BATCH_SIZE / NUM_MINIBATCHES
+    #   NUM_ITERATIONS = how many rollout+update cycles fit in TOTAL_TIMESTEPS
     config["BATCH_SIZE"] = int(config["NUM_ENVS"] * config["NUM_STEPS"])
     config["MINIBATCH_SIZE"] = int(config["BATCH_SIZE"] // config["NUM_MINIBATCHES"])
     config["NUM_ITERATIONS"] = int(config["TOTAL_TIMESTEPS"] // config["BATCH_SIZE"])
@@ -274,6 +312,9 @@ def single_run(config: dict):
     critic = Critic()
     # Sample obs shape is (F, H, W); add a leading batch dim of 1 for param init.
     network_params = network.init(network_key, env.observation_space().sample(obs_sample_key1).squeeze()[None, ...])
+    
+    # Bundle all three param trees into one TrainState. The heads are initialised
+    # on the *torso output* of a dummy obs, so their input dims match the torso.
     agent_state = TrainState.create(
         apply_fn=None,
         params=AgentParams(
@@ -281,6 +322,9 @@ def single_run(config: dict):
             actor_params=actor.init(actor_key, network.apply(network_params, np.array([env.observation_space().sample(obs_sample_key2).squeeze()]))),
             critic_params=critic.init(critic_key, network.apply(network_params, np.array([env.observation_space().sample(obs_sample_key3).squeeze()]))),
         ),
+        # Optimiser: global-norm grad clipping THEN Adam. inject_hyperparams
+        # exposes the (possibly scheduled) learning_rate so it can be logged and
+        # annealed each step.
         tx=optax.chain(
             optax.clip_by_global_norm(config["MAX_GRAD_NORM"]),
             optax.inject_hyperparams(optax.adam)(
@@ -292,6 +336,7 @@ def single_run(config: dict):
     actor.apply = jax.jit(actor.apply)
     critic.apply = jax.jit(critic.apply)
 
+    # ---- Acting: sample an action + its value/logprob (used in rollout) ----
     @jax.jit
     def get_action_and_value(
         agent_state: TrainState,
@@ -310,18 +355,16 @@ def single_run(config: dict):
         value = critic.apply(agent_state.params.critic_params, hidden)
         return action, logprob, value.squeeze(1), key
 
+    # ---- Scoring: recompute logprob/entropy/value for a GIVEN action -------
+    # Used inside the loss (the "new" policy evaluating the actions that the
+    # "old" policy took during rollout). Takes raw `params` (an AgentParams) so
+    # it is differentiable w.r.t. the whole agent pytree.
     @jax.jit
     def get_action_and_value2(
         params: flax.core.FrozenDict,
         x: np.ndarray,
         action: np.ndarray,
     ):
-        """Re-evaluate a batch of stored (obs, action) pairs under the *current* params.
-
-        Used inside the PPO loss to get the new logprob/entropy/value needed for the
-        clipped objective - as opposed to `get_action_and_value`, which samples fresh
-        actions during rollout collection.
-        """
         hidden = network.apply(params.network_params, x)
         logits = actor.apply(params.actor_params, hidden)
         logprob = jax.nn.log_softmax(logits)[jnp.arange(action.shape[0]), action]
@@ -332,6 +375,11 @@ def single_run(config: dict):
         entropy = -p_log_p.sum(-1)
         value = critic.apply(params.critic_params, hidden).squeeze()
         return logprob, entropy, value
+
+    # ---- Generalised Advantage Estimation ---------------------------------
+    # One backward recursion step of GAE:
+    #   delta_t = r_t + gamma * V_{t+1} * (1-done) - V_t
+    #   A_t     = delta_t + gamma * lambda * (1-done) * A_{t+1}
 
     def compute_gae_once(carry, inp, gamma, gae_lambda):
         """Single backward step of Generalized Advantage Estimation, for use in a scan."""
@@ -352,7 +400,7 @@ def single_run(config: dict):
         next_done: np.ndarray,
         storage: Storage,
     ):
-        """Fill in `storage.advantages`/`storage.returns` via GAE, scanning backwards in time."""
+        # Bootstrap value for the state AFTER the last rollout step.
         next_value = critic.apply(
             agent_state.params.critic_params, network.apply(agent_state.params.network_params, next_obs)
         ).squeeze()
@@ -368,6 +416,15 @@ def single_run(config: dict):
             returns=advantages + storage.values,
         )
         return storage
+
+    # ---- PPO loss ----------------------------------------------------------
+    # Standard clipped-surrogate PPO objective over one minibatch.
+    #
+    # >>> EWC HOOK: an Elastic Weight Consolidation penalty
+    #     (lambda/2) * sum_i F_i * (theta_i - theta*_i)^2 would be ADDED to
+    #     `loss` here, using `params` as theta and a stored Fisher/anchor from
+    #     the previous task. Keep it inside this function so it flows through
+    #     value_and_grad automatically.
 
     def ppo_loss(params, x, a, logp, mb_advantages, mb_returns):
         """The clipped PPO surrogate objective, plus value and entropy terms."""
@@ -394,13 +451,13 @@ def single_run(config: dict):
 
     ppo_loss_grad_fn = jax.value_and_grad(ppo_loss, has_aux=True)
 
+    # ---- PPO update: UPDATE_EPOCHS passes over shuffled minibatches --------
     @jax.jit
     def update_ppo(
         agent_state: TrainState,
         storage: Storage,
         key: jax.random.PRNGKey,
     ):
-        """Run UPDATE_EPOCHS passes over the rollout, each shuffled into NUM_MINIBATCHES chunks."""
         def update_epoch(carry, unused_inp):
             agent_state, key = carry
             key, subkey = jax.random.split(key)
@@ -417,6 +474,14 @@ def single_run(config: dict):
 
             flatten_storage = jax.tree.map(flatten, storage)
             shuffled_storage = jax.tree.map(convert_data, flatten_storage)
+
+            # One gradient step on one minibatch.
+            #
+            # >>> A-GEM HOOK: `grads` is available here BEFORE apply_gradients.
+            #     Insert the A-GEM projection (if grads . g_ref < 0, subtract the
+            #     violating component using the reference/memory gradient g_ref)
+            #     between the grad computation and `apply_gradients`. grads is a
+            #     pytree matching AgentParams, so the dot products are tree-reduces.
 
             def update_minibatch(agent_state, minibatch):
                 (loss, (pg_loss, v_loss, entropy_loss, approx_kl)), grads = ppo_loss_grad_fn(
@@ -439,6 +504,11 @@ def single_run(config: dict):
             update_epoch, (agent_state, key), (), length=config["UPDATE_EPOCHS"]
         )
         return agent_state, loss, pg_loss, v_loss, entropy_loss, approx_kl, key
+
+    # ---- Periodic eval + checkpoint (calls external `evaluate`) -----------
+    # >>> RETENTION HOOK: `evaluate` here runs on EVAL_MODS. For a continual
+    #     protocol you would evaluate on *earlier* tasks after training a later
+    #     one; this is the natural place to measure forgetting.
 
     def eval_and_vid(iteration):
         """Checkpoint the current params, run a held-out evaluation, and log results/video."""
@@ -482,14 +552,18 @@ def single_run(config: dict):
         if config["CAPTURE_VIDEO"]:
             log_periodic_eval_video(config["ENV_ID"], env_states, iteration)
 
-    # --- Rollout collection ---
+    # ========================================================================
+    # ROLLOUT + TRAINING LOOP
+    # ========================================================================
+    # Initialise the game: reset all envs, mark none done.
+
     key, reset_key = jax.random.split(key)
     global_step = 0
     next_obs, env_state = vmap_reset(jax.random.split(reset_key, config["NUM_ENVS"]))
     next_done = jnp.zeros(config["NUM_ENVS"], dtype=jax.numpy.bool_)
 
+     # One environment step for the rollout scan: act, step, record into Storage.
     def step_once(carry, step, env_step_fn):
-        """One env step for all NUM_ENVS environments in lockstep; scanned NUM_STEPS times."""
         agent_state, obs, done, key, env_state = carry
         action, logprob, value, key = get_action_and_value(agent_state, obs, key)
 
@@ -574,6 +648,9 @@ def single_run(config: dict):
 
     wandb.finish()
 
+# =============================================================================
+# HYDRA ENTRY POINT
+# =============================================================================
 
 @hydra.main(version_base=None, config_path="./config", config_name="config")
 def main(config):
