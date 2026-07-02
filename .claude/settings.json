@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(mkdir -p /Users/sebiwette/Desktop/JAXAtari_M_Thesis/scripts/benchmarks/CRL/config)",
+      "Bash(python3 -m py_compile scripts/benchmarks/CRL/ppo_crl_finetune.py scripts/benchmarks/CRL/ppo_crl_eval.py)",
+      "Bash(mkdir -p /Users/sebiwette/Desktop/JAXAtari_M_Thesis/scripts/benchmarks/CRL/config/alg)",
+      "Bash(python3 -m py_compile scripts/benchmarks/CRL/ppo_crl_finetune.py scripts/benchmarks/CRL/video_utils.py scripts/benchmarks/CRL/ppo_crl_eval.py)"
+    ],
+    "additionalDirectories": [
+      "/Users/sebiwette/Desktop/JAXAtari_M_Thesis/scripts/benchmarks/CRL",
+      "/Users/sebiwette/Desktop/JAXAtari_M_Thesis/scripts/benchmarks/CRL/config"
+    ]
+  }
+}
