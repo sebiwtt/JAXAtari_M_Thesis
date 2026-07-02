@@ -243,7 +243,26 @@ class Storage:
 # MAIN ENTRY: one full training run for a single (env, modality, seed) config
 # =============================================================================
 
-def single_run(config: dict):
+def train(
+    config: dict,
+    init_params: "AgentParams | None" = None,
+    run_name: str | None = None,
+    manage_wandb: bool = True,
+    wandb_step_offset: int = 0,
+) -> "AgentParams":
+    """Run one single-task PPO training job and return the final agent params.
+
+    `init_params`, if given, seeds the network/actor/critic trees instead of
+    fresh `network.init` (naive-finetuning resume across CRL tasks). The
+    optimizer is always constructed fresh here (`TrainState.create` calls
+    `tx.init(params)`), so Adam moments never carry across calls even when
+    `init_params` does.
+
+    `run_name`/`manage_wandb`/`wandb_step_offset` let a caller (e.g. a
+    continual-learning orchestrator) run this function repeatedly against one
+    shared wandb run with non-colliding checkpoint paths and a contiguous
+    step axis, without duplicating the whole training loop.
+    """
     # Hydra gives us the alg sub-config nested under "alg"; flatten it into one dict of
     # UPPER_CASE keys, which is what the rest of this function expects.
     config = {k.upper(): v for k, v in config.items() if k != "alg"}
@@ -262,8 +281,9 @@ def single_run(config: dict):
     config["MINIBATCH_SIZE"] = int(config["BATCH_SIZE"] // config["NUM_MINIBATCHES"])
     config["NUM_ITERATIONS"] = int(config["TOTAL_TIMESTEPS"] // config["BATCH_SIZE"])
 
-    run_name = f'{config["ENV_ID"]}_{config["EXP_NAME"]}_{"oc" if not config["PIXEL_BASED"] else "pixel"}_{config["SEED"]}'
-    if config["TRACK"]:
+    if run_name is None:
+        run_name = f'{config["ENV_ID"]}_{config["EXP_NAME"]}_{"oc" if not config["PIXEL_BASED"] else "pixel"}_{config["SEED"]}'
+    if config["TRACK"] and manage_wandb:
         wandb.init(
             project=config["PROJECT"],
             entity=config["ENTITY"],
@@ -310,18 +330,36 @@ def single_run(config: dict):
     network = Network() if config["PIXEL_BASED"] else MLP_Network()
     actor = Actor(action_dim=env.action_space().n)
     critic = Critic()
-    # Sample obs shape is (F, H, W); add a leading batch dim of 1 for param init.
-    network_params = network.init(network_key, env.observation_space().sample(obs_sample_key1).squeeze()[None, ...])
-    
-    # Bundle all three param trees into one TrainState. The heads are initialised
-    # on the *torso output* of a dummy obs, so their input dims match the torso.
-    agent_state = TrainState.create(
-        apply_fn=None,
-        params=AgentParams(
+
+    if init_params is None:
+        # Task 0 (or standalone single-task run): fresh init, exactly as before.
+        # Sample obs shape is (F, H, W); add a leading batch dim of 1 for param init.
+        network_params = network.init(network_key, env.observation_space().sample(obs_sample_key1).squeeze()[None, ...])
+        # The heads are initialised on the *torso output* of a dummy obs, so their
+        # input dims match the torso.
+        params = AgentParams(
             network_params=network_params,
             actor_params=actor.init(actor_key, network.apply(network_params, np.array([env.observation_space().sample(obs_sample_key2).squeeze()]))),
             critic_params=critic.init(critic_key, network.apply(network_params, np.array([env.observation_space().sample(obs_sample_key3).squeeze()]))),
-        ),
+        )
+    else:
+        # Naive finetuning: carry params forward from the previous task. The action
+        # space must stay identical across tasks (single-head Actor, see module
+        # docstring) so this pytree's shapes still match the fresh network/actor/critic
+        # instances above; check that explicitly rather than failing deep inside apply().
+        resumed_action_dim = init_params.actor_params["params"]["Dense_0"]["bias"].shape[0]
+        assert resumed_action_dim == env.action_space().n, (
+            f"action space changed across tasks: init_params has action_dim={resumed_action_dim}, "
+            f'but current task ({config.get("TRAIN_MODS")}) has action_dim={env.action_space().n}'
+        )
+        params = init_params
+
+    # Bundle all three param trees into one TrainState. tx.init(params) below always
+    # builds fresh optimizer state, so Adam moments never carry across `train()` calls
+    # even when `init_params` does.
+    agent_state = TrainState.create(
+        apply_fn=None,
+        params=params,
         # Optimiser: global-norm grad clipping THEN Adam. inject_hyperparams
         # exposes the (possibly scheduled) learning_rate so it can be logged and
         # annealed each step.
@@ -531,7 +569,7 @@ def single_run(config: dict):
 
         # `evaluate` (ppo_crl_eval.py) reloads the checkpoint and rolls out the greedy
         # policy on the EVAL_MODS environment, independent of the training env state.
-        episodic_returns, env_states = evaluate(
+        episodic_returns, env_states, completed = evaluate(
             model_path,
             partial(
                 make_env,
@@ -542,15 +580,19 @@ def single_run(config: dict):
                 eval=True,
             ),
             config["ENV_ID"],
-            eval_episodes=10,
+            eval_episodes=config.get("EVAL_EPISODES", 10),
             run_name=f"{run_name}-eval",
             Model=(Network, Actor, Critic) if config["PIXEL_BASED"] else (MLP_Network, Actor, Critic),
             seed=config["SEED"],
         )
-        wandb.log({"eval/episodic_return_mod": np.mean(jax.device_get(episodic_returns)), "step": iteration})
+        n_completed = int(np.sum(jax.device_get(completed)))
+        if n_completed < completed.shape[0]:
+            print(f"WARNING: only {n_completed}/{completed.shape[0]} periodic-eval episodes finished within the eval scan window; their returns are likely inflated.")
+        if config["TRACK"]:
+            wandb.log({"eval/episodic_return_mod": np.mean(jax.device_get(episodic_returns)), "step": wandb_step_offset + iteration})
 
-        if config["CAPTURE_VIDEO"]:
-            log_periodic_eval_video(config["ENV_ID"], env_states, iteration)
+        if config["CAPTURE_VIDEO"] and config["TRACK"]:
+            log_periodic_eval_video(config["ENV_ID"], env_states, wandb_step_offset + iteration)
 
     # ========================================================================
     # ROLLOUT + TRAINING LOOP
@@ -634,19 +676,29 @@ def single_run(config: dict):
             "charts/time": time.time() - start_time,
             "charts/global_step": global_step,
         }
-        wandb.log(metrics, step=iteration)
+        if config["TRACK"]:
+            wandb.log(metrics, step=wandb_step_offset + iteration)
 
     end_time = time.time()
     print("Training done.")
     if compile_time is not None:
         print(f"Run time after first iteration: {end_time - compile_time:.2f} seconds.")
     print(f"Total train time: {end_time - start_time:.2f} seconds / {(end_time - start_time)/60:.2f} minutes.")
-    generate_final_video(config, network, actor, agent_state, make_env)
+    if config["TRACK"]:
+        generate_final_video(config, network, actor, agent_state, make_env)
 
     if config["SAVE_MODEL"]:
         eval_and_vid(iteration)
 
-    wandb.finish()
+    if config["TRACK"] and manage_wandb:
+        wandb.finish()
+
+    return agent_state.params
+
+
+def single_run(config: dict):
+    """CLI-facing single-task entry point: unchanged behavior, thin wrapper over `train`."""
+    train(config)
 
 # =============================================================================
 # HYDRA ENTRY POINT

@@ -98,8 +98,18 @@ def evaluate(
     print("filtered rewards: ", rewards.shape, jnp.sum(rewards), jnp.mean(rewards))
     episodic_returns = jnp.sum(rewards, axis=0)  # shape: (eval_episodes,)
 
+    # Whether each parallel stream actually hit `done` within the fixed 10_000-step scan.
+    # If not, `episodic_returns` for that stream is a truncated-episode reward sum, not a
+    # full-episode return - silently inflated/deflated relative to the other cells it gets
+    # compared against.
+    completed = has_finished[-1].astype(bool)  # shape: (eval_episodes,)
+    n_completed = int(jnp.sum(completed))
+    print(f"episode completion: {n_completed}/{completed.shape[0]} episodes finished within {rewards.shape[0]} steps")
+    if n_completed < completed.shape[0]:
+        print(f"WARNING: {completed.shape[0] - n_completed} episode(s) did not terminate within the eval scan window; their returns are likely inflated.")
+
     # first episode video capture
     # states_until_done = first_obs[:first_done[0] + 1, 0]  # shape: (time_until_done, 1, H, W)
     env_states_until_done = jax.tree.map(lambda x: x[:first_done[0] + 1], first_states.atari_state.atari_state.env_state)
 
-    return episodic_returns, env_states_until_done
+    return episodic_returns, env_states_until_done, completed
