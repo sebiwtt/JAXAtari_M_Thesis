@@ -675,9 +675,25 @@ def train(
 
         # `loss`/`pg_loss`/etc have shape (UPDATE_EPOCHS, NUM_MINIBATCHES); [-1, -1]
         # takes the last minibatch of the last epoch as a representative sample.
+        #
+        # `returned_episode_returns`/`_lengths` hold each env's *last completed* episode
+        # stats (LogWrapper), which are hard-zeroed by env.reset() - so right after a
+        # fresh reset (start of every task, including resumed ones) they read 0 for any
+        # env slot that hasn't finished its first episode yet, regardless of how good the
+        # (possibly carried-over) policy actually is. `returned_episode_lengths == 0` is
+        # exactly that "no episode completed since reset" condition (a real episode always
+        # has length >= 1), so it's used below to NaN out those still-warming-up slots
+        # instead of letting them drag the mean down toward a misleading 0.
+        if config.get("NAN_UNTIL_FIRST_EPISODE", False):
+            never_completed = info["returned_episode_lengths"] == 0
+            avg_episodic_return = jnp.nanmean(jnp.where(never_completed, jnp.nan, info["returned_episode_returns"]))
+            avg_episodic_length = jnp.nanmean(jnp.where(never_completed, jnp.nan, info["returned_episode_lengths"]))
+        else:
+            avg_episodic_return = info["returned_episode_returns"].mean()
+            avg_episodic_length = info["returned_episode_lengths"].mean()
         metrics = {
-            f"{chart_section}/avg_episodic_return": info["returned_episode_returns"].mean(),
-            f"{chart_section}/avg_episodic_length": info["returned_episode_lengths"].mean(),
+            f"{chart_section}/avg_episodic_return": avg_episodic_return,
+            f"{chart_section}/avg_episodic_length": avg_episodic_length,
             f"{chart_section}/learning_rate": agent_state.opt_state[1].hyperparams["learning_rate"].item(),
             f"{loss_section}/value_loss": v_loss[-1, -1].item(),
             f"{loss_section}/policy_loss": pg_loss[-1, -1].item(),

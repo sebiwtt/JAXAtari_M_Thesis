@@ -5,6 +5,12 @@ CAPTURE_VIDEO: True
 EVAL_DURING_TRAIN: False
 EVAL_EVERY: 1000
 
+# charts/avg_episodic_return(_length) read 0 for any env slot that hasn't finished its
+# first episode since the last reset (LogWrapper zeroes them on reset), which can look
+# like a performance drop even when it's just a fresh env warming up. Set True to log
+# NaN for those slots instead (shows as a gap in the plot rather than a fake 0).
+NAN_UNTIL_FIRST_EPISODE: False
+
 PIXEL_BASED: False
 NATIVE_DOWNSCALING: True
 SMOOTH_IMAGE: False

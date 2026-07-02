@@ -17,6 +17,13 @@ SAVE_MODEL: False             # whether train()'s own eval_and_vid() checkpoints
 EVAL_DURING_TRAIN: False
 EVAL_EVERY: 1000              # in PPO iterations, not env steps; only matters if EVAL_DURING_TRAIN is True
 
+# On here (unlike the single-task config): every task after task 0 resumes from carried-
+# over params on a freshly-reset env, so charts-{task}/avg_episodic_return(_length) would
+# otherwise show a hard 0 floor for the first few iterations - looking exactly like the
+# agent forgot everything, when it's really just LogWrapper's per-env "last completed
+# episode" bookkeeping warming back up. NaN shows as a gap instead of a fake dip.
+NAN_UNTIL_FIRST_EPISODE: True
+
 # Unused elsewhere in this repo (no `config["..."]` read for these anywhere in
 # ppo_crl_finetune.py / ppo_crl_continual.py / ppo_crl_eval.py) - leftover from the
 # CleanRL template this trainer was adapted from. Safe to delete; kept only so this
