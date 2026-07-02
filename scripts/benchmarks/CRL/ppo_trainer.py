@@ -55,7 +55,7 @@ import hydra
 from omegaconf import OmegaConf
 from jaxatari.wrappers import NormalizeObservationWrapper, ObjectCentricWrapper, PixelObsWrapper, AtariWrapper, LogWrapper, FlattenObservationWrapper
 from jaxatari import spaces
-from ppo_crl_eval import evaluate
+from ppo_eval import evaluate
 from video_utils import generate_final_video, log_periodic_eval_video
 
 from rtpt import RTPT

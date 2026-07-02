@@ -27,8 +27,8 @@ import numpy as np
 import wandb
 from omegaconf import OmegaConf
 
-from ppo_crl_eval import evaluate
-from ppo_crl_finetune import Actor, Critic, MLP_Network, Network, make_env, train
+from ppo_eval import evaluate
+from ppo_trainer import Actor, Critic, MLP_Network, Network, make_env, train
 
 
 def _task_label(mods) -> str:
