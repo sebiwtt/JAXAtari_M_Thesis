@@ -99,6 +99,7 @@ def run_continual(config: dict) -> None:
             run_name=task_run_name,
             manage_wandb=False,
             wandb_step_offset=i * num_iterations,
+            wandb_group=labels[i],
         )
 
         # Orchestrator's own checkpoint of the agent after task i, used to fill row i

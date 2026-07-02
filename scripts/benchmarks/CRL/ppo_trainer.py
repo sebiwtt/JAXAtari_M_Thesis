@@ -249,6 +249,7 @@ def train(
     run_name: str | None = None,
     manage_wandb: bool = True,
     wandb_step_offset: int = 0,
+    wandb_group: str | None = None,
 ) -> "AgentParams":
     """Run one single-task PPO training job and return the final agent params.
 
@@ -262,6 +263,12 @@ def train(
     continual-learning orchestrator) run this function repeatedly against one
     shared wandb run with non-colliding checkpoint paths and a contiguous
     step axis, without duplicating the whole training loop.
+
+    `wandb_group`, if given, suffixes the wandb metric sections (e.g.
+    "charts" -> "charts-{wandb_group}") so multiple `train()` calls sharing one
+    wandb run (same caveat as above) each get their own panels/dropdown instead
+    of one shared "charts" section silently concatenating every call's points
+    into what looks like a single, jumbled line.
     """
     # Hydra gives us the alg sub-config nested under "alg"; flatten it into one dict of
     # UPPER_CASE keys, which is what the rest of this function expects.
@@ -283,6 +290,9 @@ def train(
 
     if run_name is None:
         run_name = f'{config["ENV_ID"]}_{config["EXP_NAME"]}_{"oc" if not config["PIXEL_BASED"] else "pixel"}_{config["SEED"]}'
+    chart_section = f"charts-{wandb_group}" if wandb_group else "charts"
+    loss_section = f"losses-{wandb_group}" if wandb_group else "losses"
+    eval_section = f"eval-{wandb_group}" if wandb_group else "eval"
     if config["TRACK"] and manage_wandb:
         wandb.init(
             project=config["PROJECT"],
@@ -589,7 +599,10 @@ def train(
         if n_completed < completed.shape[0]:
             print(f"WARNING: only {n_completed}/{completed.shape[0]} periodic-eval episodes finished within the eval scan window; their returns are likely inflated.")
         if config["TRACK"]:
-            wandb.log({"eval/episodic_return_mod": np.mean(jax.device_get(episodic_returns)), "step": wandb_step_offset + iteration})
+            wandb.log(
+                {f"{eval_section}/episodic_return_mod": np.mean(jax.device_get(episodic_returns))},
+                step=wandb_step_offset + iteration,
+            )
 
         if config["CAPTURE_VIDEO"] and config["TRACK"]:
             log_periodic_eval_video(config["ENV_ID"], env_states, wandb_step_offset + iteration)
@@ -663,18 +676,18 @@ def train(
         # `loss`/`pg_loss`/etc have shape (UPDATE_EPOCHS, NUM_MINIBATCHES); [-1, -1]
         # takes the last minibatch of the last epoch as a representative sample.
         metrics = {
-            "charts/avg_episodic_return": info["returned_episode_returns"].mean(),
-            "charts/avg_episodic_length": info["returned_episode_lengths"].mean(),
-            "charts/learning_rate": agent_state.opt_state[1].hyperparams["learning_rate"].item(),
-            "losses/value_loss": v_loss[-1, -1].item(),
-            "losses/policy_loss": pg_loss[-1, -1].item(),
-            "losses/entropy": entropy_loss[-1, -1].item(),
-            "losses/approx_kl": approx_kl[-1, -1].item(),
-            "losses/loss": loss[-1, -1].item(),
-            "charts/SPS": int(global_step / (time.time() - start_time)),
-            "charts/SPS_update": int(config["NUM_ENVS"] * config["NUM_STEPS"] / (time.time() - iteration_time_start)),
-            "charts/time": time.time() - start_time,
-            "charts/global_step": global_step,
+            f"{chart_section}/avg_episodic_return": info["returned_episode_returns"].mean(),
+            f"{chart_section}/avg_episodic_length": info["returned_episode_lengths"].mean(),
+            f"{chart_section}/learning_rate": agent_state.opt_state[1].hyperparams["learning_rate"].item(),
+            f"{loss_section}/value_loss": v_loss[-1, -1].item(),
+            f"{loss_section}/policy_loss": pg_loss[-1, -1].item(),
+            f"{loss_section}/entropy": entropy_loss[-1, -1].item(),
+            f"{loss_section}/approx_kl": approx_kl[-1, -1].item(),
+            f"{loss_section}/loss": loss[-1, -1].item(),
+            f"{chart_section}/SPS": int(global_step / (time.time() - start_time)),
+            f"{chart_section}/SPS_update": int(config["NUM_ENVS"] * config["NUM_STEPS"] / (time.time() - iteration_time_start)),
+            f"{chart_section}/time": time.time() - start_time,
+            f"{chart_section}/global_step": global_step,
         }
         if config["TRACK"]:
             wandb.log(metrics, step=wandb_step_offset + iteration)

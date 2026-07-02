@@ -5,9 +5,11 @@ EXP_NAME: ppo_crl_continual   # used to build run_name and checkpoint filenames/
 TRACK: True                   # master wandb switch: also gates CAPTURE_VIDEO below (no wandb -> no video upload)
 CAPTURE_VIDEO: False           # upload eval/final-rollout clips to wandb; only has effect if TRACK is also True
 
-SAVE_MODEL: True              # whether train()'s own eval_and_vid() checkpoints/evaluates at the end of each task
-                               # (independent of the continual orchestrator's own task_{i}.cleanrl_model checkpoint,
-                               # which always happens regardless of this flag)
+SAVE_MODEL: False             # whether train()'s own eval_and_vid() checkpoints/evaluates at the end of each task.
+                               # Off here: it's redundant with the continual orchestrator's own task_{i}.cleanrl_model
+                               # checkpoint + crl/R/{i}_{i} eval (which always happen regardless of this flag), and
+                               # its "eval-{task}/episodic_return_mod" metric was a second, differently-seeded
+                               # measurement of that same diagonal cell rather than anything new.
 
 # Periodic (mid-training) eval+checkpoint+video, on top of the end-of-task one above.
 # Off by default because with a short per-task budget it just adds overhead; turn on
