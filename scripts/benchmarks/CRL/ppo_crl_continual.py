@@ -8,7 +8,14 @@
 # in one row of a lower-triangular retention matrix:
 #
 #   R[i, j]         = mean return of the agent trained through task i, evaluated on task j  (j <= i)
-#   Retention[i, j] = R[i, j] / R[j, j]                                                       (j <= i)
+#   R_rand[j]        = mean return of a FRESH, UNTRAINED agent evaluated on task j - the empirical
+#                       "knows nothing about this task" floor. Needed because that floor isn't 0 in
+#                       Pong (a random policy scores close to -21, not 0), so a plain R[i,j]/R[j,j]
+#                       ratio silently assumes the wrong floor and can land outside [0, 1] or read as
+#                       "90% retained" when the agent is actually much closer to random than to expert.
+#   Retention[i, j] = (R[i, j] - R_rand[j]) / (R[j, j] - R_rand[j])                            (j <= i)
+#                       1.0 = matches original post-task-j performance, 0.0 = performs like a random
+#                       agent on task j.
 #
 # This file only orchestrates; the actual PPO loop lives in `ppo_crl_finetune.train`
 # and evaluation lives in `ppo_crl_eval.evaluate` - both are reused unmodified in
@@ -28,7 +35,7 @@ import wandb
 from omegaconf import OmegaConf
 
 from ppo_eval import evaluate
-from ppo_trainer import Actor, Critic, MLP_Network, Network, make_env, train
+from ppo_trainer import AgentParams, Actor, Critic, MLP_Network, Network, make_env, train
 
 
 def _task_label(mods) -> str:
@@ -45,6 +52,36 @@ def _print_matrix(name: str, M: np.ndarray, labels: list[str]) -> None:
             for j in range(M.shape[1])
         )
         print(f"{row_label:>{col_w}}" + row)
+
+
+def _print_vector(name: str, v: np.ndarray, labels: list[str]) -> None:
+    print(f"\n{name}:")
+    for label, value in zip(labels, v):
+        print(f"  {label:>12}: {value:.3f}")
+
+
+def _init_random_agent_params(config: dict, key: jax.random.PRNGKey) -> AgentParams:
+    """Freshly-initialized, completely untrained params - the R_rand floor for retention.
+
+    Mirrors `train()`'s own fresh-init branch (same network/actor/critic classes and init
+    calls) but standalone, since `train()` always runs at least one PPO iteration (RTPT
+    requires max_iterations > 0) and we explicitly want zero training here.
+    """
+    env = make_env(
+        config["ENV_ID"], config["SEED"], 1, [], config["PIXEL_BASED"], config["NATIVE_DOWNSCALING"], config["SMOOTH_IMAGE"]
+    )()
+    network = Network() if config["PIXEL_BASED"] else MLP_Network()
+    actor = Actor(action_dim=env.action_space().n)
+    critic = Critic()
+
+    key, network_key, actor_key, critic_key = jax.random.split(key, 4)
+    key, obs_key1, obs_key2, obs_key3 = jax.random.split(key, 4)
+    network_params = network.init(network_key, env.observation_space().sample(obs_key1).squeeze()[None, ...])
+    return AgentParams(
+        network_params=network_params,
+        actor_params=actor.init(actor_key, network.apply(network_params, np.array([env.observation_space().sample(obs_key2).squeeze()]))),
+        critic_params=critic.init(critic_key, network.apply(network_params, np.array([env.observation_space().sample(obs_key3).squeeze()]))),
+    )
 
 
 def run_continual(config: dict) -> None:
@@ -77,6 +114,49 @@ def run_continual(config: dict) -> None:
         )
 
     Model = (Network, Actor, Critic) if config["PIXEL_BASED"] else (MLP_Network, Actor, Critic)
+
+    # --- Random-agent floor: R_rand[j], one eval pass per task with fresh/untrained
+    # params, no training. Keyed off EVAL_SEED (not SEED) so it's reproducible independent
+    # of whatever seed drives training, matching the rest of the retention machinery.
+    rand_params = _init_random_agent_params(config, jax.random.PRNGKey(config["EVAL_SEED"]))
+    rand_ckpt_path = f"{run_dir}/random_agent.cleanrl_model"
+    with open(rand_ckpt_path, "wb") as f:
+        f.write(
+            flax.serialization.to_bytes(
+                [config, [rand_params.network_params, rand_params.actor_params, rand_params.critic_params]]
+            )
+        )
+    print(f"[CRL] random-agent baseline checkpoint saved to {rand_ckpt_path}")
+
+    R_rand = np.full(num_tasks, np.nan)
+    for j in range(num_tasks):
+        eval_mods = task_mods_list[j]
+        episodic_returns, _, completed = evaluate(
+            model_path=rand_ckpt_path,
+            make_env=partial(
+                make_env,
+                mods=eval_mods,
+                pixel_based=config["PIXEL_BASED"],
+                native_downscaling=config["NATIVE_DOWNSCALING"],
+                smooth_image=config["SMOOTH_IMAGE"],
+                eval=True,
+            ),
+            env_id=config["ENV_ID"],
+            eval_episodes=config["EVAL_EPISODES"],
+            run_name=f"{base_run_name}-eval-rand-{j}",
+            Model=Model,
+            seed=config["EVAL_SEED"],
+        )
+        episodic_returns = np.asarray(jax.device_get(episodic_returns))
+        completed = np.asarray(jax.device_get(completed))
+        n_completed = int(completed.sum())
+        if n_completed < completed.shape[0]:
+            print(
+                f"[CRL] WARNING: R_rand[{j}] only {n_completed}/{completed.shape[0]} eval episodes "
+                f"completed within the eval scan window; this floor value may be inflated."
+            )
+        R_rand[j] = float(episodic_returns.mean())
+        print(f"[CRL] R_rand[{j}] (random agent on task {j}={labels[j]!r}) = {R_rand[j]:.3f}")
 
     R = np.full((num_tasks, num_tasks), np.nan)
     ckpt_paths: list[str] = []
@@ -151,14 +231,23 @@ def run_continual(config: dict) -> None:
     Retention = np.full((num_tasks, num_tasks), np.nan)
     for i in range(num_tasks):
         for j in range(i + 1):
-            Retention[i, j] = R[i, j] / diag[j]
+            denom = diag[j] - R_rand[j]
+            if denom == 0:
+                print(
+                    f"[CRL] WARNING: R[{j},{j}]={diag[j]:.3f} equals R_rand[{j}]={R_rand[j]:.3f}; "
+                    f"Retention[{i},{j}] is undefined (0/0), leaving as NaN."
+                )
+                continue
+            Retention[i, j] = (R[i, j] - R_rand[j]) / denom
 
     _print_matrix("R (mean return)", R, labels)
-    _print_matrix("Retention (R[i,j] / R[j,j])", Retention, labels)
+    _print_vector("R_rand (random-agent floor)", R_rand, labels)
+    _print_matrix("Retention ((R[i,j] - R_rand[j]) / (R[j,j] - R_rand[j]))", Retention, labels)
 
     np.savez(
         f"{run_dir}/matrix.npz",
         R=R,
+        R_rand=R_rand,
         Retention=Retention,
         task_mods=np.array([json.dumps(m) for m in task_mods_list]),
         labels=np.array(labels),
@@ -169,8 +258,10 @@ def run_continual(config: dict) -> None:
                 "task_mods": task_mods_list,
                 "labels": labels,
                 "R": R.tolist(),
+                "R_rand": R_rand.tolist(),
                 "Retention": Retention.tolist(),
                 "checkpoints": ckpt_paths,
+                "random_agent_checkpoint": rand_ckpt_path,
             },
             f,
             indent=2,
@@ -178,6 +269,8 @@ def run_continual(config: dict) -> None:
     print(f"\n[CRL] matrix saved to {run_dir}/matrix.npz and {run_dir}/matrix.json")
 
     if config["TRACK"]:
+        for j in range(num_tasks):
+            wandb.log({f"crl/R_rand/{j}": R_rand[j]})
         for i in range(num_tasks):
             for j in range(i + 1):
                 wandb.log({f"crl/R/{i}_{j}": R[i, j], f"crl/retention/{i}_{j}": Retention[i, j]})
