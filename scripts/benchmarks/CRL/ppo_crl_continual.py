@@ -107,7 +107,8 @@ def run_continual(config: dict) -> None:
     batch_size = int(config["NUM_ENVS"] * config["NUM_STEPS"])
     num_iterations = int(config["TOTAL_TIMESTEPS"] // batch_size)
 
-    base_run_name = f'{config["ENV_ID"]}_{config["EXP_NAME"]}_{"oc" if not config["PIXEL_BASED"] else "pixel"}_{config["SEED"]}'
+    group_name = f'{config["ENV_ID"]}_{config["EXP_NAME"]}_{"oc" if not config["PIXEL_BASED"] else "pixel"}'
+    base_run_name = f'{group_name}_{config["SEED"]}'
     run_dir = f"runs/{base_run_name}"
     os.makedirs(run_dir, exist_ok=True)
 
@@ -117,6 +118,10 @@ def run_continual(config: dict) -> None:
             entity=config["ENTITY"],
             config=config,
             name=base_run_name,
+            # Same group for every SEED of an otherwise-identical sweep (see
+            # run_all_crl_seeds.py) so wandb's UI can overlay/aggregate seed
+            # replicates instead of showing N unrelated-looking runs.
+            group=group_name,
             save_code=True,
         )
 
