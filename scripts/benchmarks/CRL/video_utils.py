@@ -1,15 +1,11 @@
-"""Video capture and wandb-logging helpers for the PPO CRL fine-tuning run.
+"""Video capture and wandb-logging helpers for the PPO CRL continual-finetuning run.
 
-Two kinds of clips get produced over the course of a run:
+Generated once training ends: one clip on the actual training environment (whatever
+mod that task used), plus one per mod the agent was evaluated on, so a run gives a
+quick visual read on how the agent behaves across the whole CRL task sequence.
 
-1. Periodic eval videos - built from the env states that ``ppo_crl_eval.evaluate()``
-   already produced while checking in on the policy mid-training.
-2. Final videos - generated once training ends: one clip on the plain training
-   environment, plus one per mod the agent was evaluated on, so a run gives a quick
-   visual read on how the agent behaves across the whole CRL task sequence.
-
-These live outside ``ppo_crl_finetune.py`` because they are not part of the actual PPO
-algorithm - just observability - and pulling them out keeps the training script focused
+This lives outside ``ppo_trainer.py`` because it's not part of the actual PPO
+algorithm - just observability - and pulling it out keeps the training script focused
 on the training loop.
 """
 from typing import Callable
@@ -20,21 +16,6 @@ import numpy as np
 import wandb
 
 import jaxatari
-
-
-def log_periodic_eval_video(env_id: str, env_states, iteration: int):
-    """Render the trajectory from a periodic ``evaluate()`` call and log it to wandb.
-
-    We spin up a fresh renderer directly from ``jaxatari.make`` rather than reusing the
-    training env's renderer, because the training env may be pixel-resized/smoothed for
-    the agent's benefit - we want full-resolution frames for the video.
-    """
-    clean_renderer = jaxatari.make(env_id).renderer
-    frames = jax.vmap(clean_renderer.render)(env_states)  # (N, H, W, C)
-    frames = jnp.transpose(frames, (0, 3, 1, 2))  # wandb expects (N, C, H, W)
-    video = wandb.Video(np.array(frames), fps=30, format="mp4")
-    wandb.log({"eval/video": video}, step=iteration)
-    print(f"Video (eval) logged to wandb with {frames.shape[0]} frames.")
 
 
 def _generate_single_final_video(
@@ -123,25 +104,14 @@ def _generate_single_final_video(
 
 
 def generate_final_video(config: dict, network, actor, agent_state, make_env: Callable):
-    """Generate and upload one video per env configuration once training has finished.
-
-    Always includes the plain training environment first, then one clip per CRL mod the
-    agent was evaluated on (falling back to the training mods if no eval mods are set).
-    """
+    """Generate and upload one video of the trained policy on its own training environment
+    (whatever single mod, if any, TRAIN_MODS set for this task)."""
     if not config["CAPTURE_VIDEO"]:
         return
 
-    print(f'Generating final videos for seed {config["SEED"]}...')
+    print(f'Generating final video for seed {config["SEED"]}...')
 
-    video_configs = [([], "train")]
+    mods_config = list(config["TRAIN_MODS"])
+    video_label = "base" if len(mods_config) == 0 else str(mods_config[0])
 
-    eval_mods = config["EVAL_MODS"] if len(config["EVAL_MODS"]) > 0 else config["TRAIN_MODS"]
-    for mod in list(eval_mods):
-        mods_config = [mod] if not isinstance(mod, (list, tuple)) else list(mod)
-        mod_label = mod if isinstance(mod, str) else "_".join(str(m) for m in mods_config)
-        video_configs.append((mods_config, mod_label))
-
-    for video_index, (mods_config, video_label) in enumerate(video_configs):
-        _generate_single_final_video(
-            config, network, actor, agent_state, make_env, mods_config, video_label, video_index
-        )
+    _generate_single_final_video(config, network, actor, agent_state, make_env, mods_config, video_label)

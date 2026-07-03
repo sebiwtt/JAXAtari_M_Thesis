@@ -13,9 +13,7 @@ def evaluate(
     make_env: Callable,
     env_id: str,
     eval_episodes: int,
-    run_name: str,
     Model: nn.Module,
-    capture_video: bool = True,
     seed=1,
 ):
     env: JaxEnvironment | JaxatariWrapper = make_env(env_id, seed, 1)()
@@ -86,14 +84,9 @@ def evaluate(
 
     # obs shape: (time, eval_episodes, 1, H, W)
     first_done = jnp.argmax(dones, axis=0)  # shape: (eval_episodes,)
-    # print("first dones: ", first_done)
-    # reward_mask = jnp.arange(dones.shape[0])[:, None] <= first_done[None, :]  # shape: (time, eval_episodes)
-    # rewards = rewards * reward_mask  # shape: (time, eval_episodes)
-    # print("masked rewards: ", rewards.shape, jnp.sum(rewards), jnp.mean(rewards))
     has_finished = jax.lax.cummax(dones.astype(jnp.int32), axis=0)
     # shift right by one timestep
     mask_after_first_done = jnp.pad(has_finished[:-1, :], ((1,0),(0,0)), constant_values=0)
-    # masked_rewards = rewards * (1 - mask_after_first_done)
     rewards = rewards * (1 - mask_after_first_done)
     print("filtered rewards: ", rewards.shape, jnp.sum(rewards), jnp.mean(rewards))
     episodic_returns = jnp.sum(rewards, axis=0)  # shape: (eval_episodes,)
@@ -108,8 +101,7 @@ def evaluate(
     if n_completed < completed.shape[0]:
         print(f"WARNING: {completed.shape[0] - n_completed} episode(s) did not terminate within the eval scan window; their returns are likely inflated.")
 
-    # first episode video capture
-    # states_until_done = first_obs[:first_done[0] + 1, 0]  # shape: (time_until_done, 1, H, W)
+    # trim to the first completed episode, for the caller to optionally render as a video
     env_states_until_done = jax.tree.map(lambda x: x[:first_done[0] + 1], first_states.atari_state.atari_state.env_state)
 
     return episodic_returns, env_states_until_done, completed

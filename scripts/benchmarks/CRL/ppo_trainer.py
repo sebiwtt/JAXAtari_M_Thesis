@@ -6,7 +6,7 @@
 #   https://github.com/vwxyzjn/cleanrl/blob/master/cleanrl/ppo_atari_envpool_xla_jax_scan.py
 #
 # ---------------------------------------------------------------------------
-# HIGH-LEVEL PIPELINE (one call to `single_run`):
+# HIGH-LEVEL PIPELINE (one call to `train`, orchestrated per-task by ppo_crl_continual.py):
 #
 #   config  ──▶ derive BATCH/MINIBATCH/ITERATION sizes, init wandb, seed RNG
 #           ──▶ build wrapped vectorised env (pixel CNN path or object-centric MLP path)
@@ -35,7 +35,6 @@
 # =============================================================================
 
 
-import os
 import random
 import time
 from functools import partial
@@ -51,12 +50,9 @@ import wandb
 from flax.linen.initializers import constant, orthogonal
 from flax.training.train_state import TrainState
 import jaxatari
-import hydra
-from omegaconf import OmegaConf
 from jaxatari.wrappers import NormalizeObservationWrapper, ObjectCentricWrapper, PixelObsWrapper, AtariWrapper, LogWrapper, FlattenObservationWrapper
 from jaxatari import spaces
-from ppo_eval import evaluate
-from video_utils import generate_final_video, log_periodic_eval_video
+from video_utils import generate_final_video
 
 from rtpt import RTPT
 
@@ -276,8 +272,6 @@ def train(
 
     if isinstance(config.get("TRAIN_MODS"), list):
         config["TRAIN_MODS"] = tuple(config["TRAIN_MODS"])
-    if isinstance(config.get("EVAL_MODS"), list):
-        config["EVAL_MODS"] = tuple(config["EVAL_MODS"])
 
     # Derived sizes: how many env-steps make up one PPO iteration/minibatch, and how
     # many iterations are needed to reach TOTAL_TIMESTEPS.
@@ -292,7 +286,6 @@ def train(
         run_name = f'{config["ENV_ID"]}_{config["EXP_NAME"]}_{"oc" if not config["PIXEL_BASED"] else "pixel"}_{config["SEED"]}'
     chart_section = f"charts-{wandb_group}" if wandb_group else "charts"
     loss_section = f"losses-{wandb_group}" if wandb_group else "losses"
-    eval_section = f"eval-{wandb_group}" if wandb_group else "eval"
     if config["TRACK"] and manage_wandb:
         wandb.init(
             project=config["PROJECT"],
@@ -553,60 +546,6 @@ def train(
         )
         return agent_state, loss, pg_loss, v_loss, entropy_loss, approx_kl, key
 
-    # ---- Periodic eval + checkpoint (calls external `evaluate`) -----------
-    # >>> RETENTION HOOK: `evaluate` here runs on EVAL_MODS. For a continual
-    #     protocol you would evaluate on *earlier* tasks after training a later
-    #     one; this is the natural place to measure forgetting.
-
-    def eval_and_vid(iteration):
-        """Checkpoint the current params, run a held-out evaluation, and log results/video."""
-        model_path = f'runs/{run_name}/{config["EXP_NAME"]}_{iteration}.cleanrl_model'
-        os.makedirs(os.path.dirname(model_path), exist_ok=True)
-        with open(model_path, "wb") as f:
-            f.write(
-                flax.serialization.to_bytes(
-                    [
-                        config,
-                        [
-                            agent_state.params.network_params,
-                            agent_state.params.actor_params,
-                            agent_state.params.critic_params,
-                        ],
-                    ]
-                )
-            )
-        print(f"model saved to {model_path}")
-
-        # `evaluate` (ppo_crl_eval.py) reloads the checkpoint and rolls out the greedy
-        # policy on the EVAL_MODS environment, independent of the training env state.
-        episodic_returns, env_states, completed = evaluate(
-            model_path,
-            partial(
-                make_env,
-                mods=list(config["EVAL_MODS"]),
-                pixel_based=config["PIXEL_BASED"],
-                native_downscaling=config["NATIVE_DOWNSCALING"],
-                smooth_image=config["SMOOTH_IMAGE"],
-                eval=True,
-            ),
-            config["ENV_ID"],
-            eval_episodes=config.get("EVAL_EPISODES", 10),
-            run_name=f"{run_name}-eval",
-            Model=(Network, Actor, Critic) if config["PIXEL_BASED"] else (MLP_Network, Actor, Critic),
-            seed=config["SEED"],
-        )
-        n_completed = int(np.sum(jax.device_get(completed)))
-        if n_completed < completed.shape[0]:
-            print(f"WARNING: only {n_completed}/{completed.shape[0]} periodic-eval episodes finished within the eval scan window; their returns are likely inflated.")
-        if config["TRACK"]:
-            wandb.log(
-                {f"{eval_section}/episodic_return_mod": np.mean(jax.device_get(episodic_returns))},
-                step=wandb_step_offset + iteration,
-            )
-
-        if config["CAPTURE_VIDEO"] and config["TRACK"]:
-            log_periodic_eval_video(config["ENV_ID"], env_states, wandb_step_offset + iteration)
-
     # ========================================================================
     # ROLLOUT + TRAINING LOOP
     # ========================================================================
@@ -653,8 +592,6 @@ def train(
     # --- Main training loop: collect rollout -> compute advantages -> PPO update -> log ---
     for iteration in range(1, config["NUM_ITERATIONS"] + 1):
         rtpt.step()
-        if config["EVAL_DURING_TRAIN"] and iteration > 0 and iteration % config["EVAL_EVERY"] == 0:
-            eval_and_vid(iteration)
 
         iteration_time_start = time.time()
         agent_state, next_obs, next_done, storage, key, env_state, info = rollout(
@@ -716,33 +653,7 @@ def train(
     if config["TRACK"]:
         generate_final_video(config, network, actor, agent_state, make_env)
 
-    if config["SAVE_MODEL"]:
-        eval_and_vid(iteration)
-
     if config["TRACK"] and manage_wandb:
         wandb.finish()
 
     return agent_state.params
-
-
-def single_run(config: dict):
-    """CLI-facing single-task entry point: unchanged behavior, thin wrapper over `train`."""
-    train(config)
-
-# =============================================================================
-# HYDRA ENTRY POINT
-# =============================================================================
-
-@hydra.main(version_base=None, config_path="./config", config_name="config")
-def main(config):
-    # Hydra resolves the top-level config.yaml plus whichever `+alg=<name>` group config
-    # was selected on the command line (see config/alg/) into one nested dict; merge the
-    # alg sub-dict up to the top level so `single_run` sees one flat config.
-    config = OmegaConf.to_container(config, resolve=True)
-    merged_config = {**config, **config.get("alg", {})}
-    print("Config:\n", OmegaConf.to_yaml(OmegaConf.create(config)))
-    single_run(merged_config)
-
-
-if __name__ == "__main__":
-    main()

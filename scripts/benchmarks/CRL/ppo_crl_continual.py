@@ -24,10 +24,9 @@
 # seen mods). Same R/R_rand/Retention definitions apply to both regions - a Retention
 # cell doesn't know or care whether j is a past or future task relative to i.
 #
-# This file only orchestrates; the actual PPO loop lives in `ppo_crl_finetune.train`
-# and evaluation lives in `ppo_crl_eval.evaluate` - both are reused unmodified in
-# spirit (train() gained an optional `init_params` resume path, evaluate() gained an
-# episode-completion signal, see their docstrings/comments).
+# This file only orchestrates; the actual PPO loop lives in `ppo_trainer.train` and
+# evaluation lives in `ppo_eval.evaluate` (see their docstrings/comments for the
+# `init_params` resume path and the episode-completion signal, respectively).
 # =============================================================================
 
 import json
@@ -155,7 +154,6 @@ def run_continual(config: dict) -> None:
             ),
             env_id=config["ENV_ID"],
             eval_episodes=config["EVAL_EPISODES"],
-            run_name=f"{base_run_name}-eval-rand-{j}",
             Model=Model,
             seed=config["EVAL_SEED"],
         )
@@ -177,11 +175,9 @@ def run_continual(config: dict) -> None:
     for i in range(num_tasks):
         task_mods = task_mods_list[i]
         task_config = dict(config)
-        # Both TRAIN_MODS and EVAL_MODS drive `train()`'s own (task-namespaced)
-        # periodic-eval/video/SAVE_MODEL side effects; pin them to this task's single
-        # mod so that mid-training housekeeping matches what's actually being trained.
+        # Drives train()'s own env construction and (task-namespaced) final video, so
+        # the mid-training housekeeping matches what's actually being trained.
         task_config["TRAIN_MODS"] = tuple(task_mods)
-        task_config["EVAL_MODS"] = tuple(task_mods)
 
         task_run_name = f"{base_run_name}_task{i}"
         print(f"\n=== CRL task {i}/{num_tasks - 1}: mods={task_mods} (label={labels[i]!r}) ===")
@@ -228,7 +224,6 @@ def run_continual(config: dict) -> None:
                 ),
                 env_id=config["ENV_ID"],
                 eval_episodes=config["EVAL_EPISODES"],
-                run_name=f"{base_run_name}-eval-{i}-{j}",
                 Model=Model,
                 seed=config["EVAL_SEED"],
             )

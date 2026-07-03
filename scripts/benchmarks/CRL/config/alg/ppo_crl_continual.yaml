@@ -3,33 +3,14 @@
 # =============================================================================
 EXP_NAME: ppo_crl_continual   # used to build run_name and checkpoint filenames/paths
 TRACK: True                   # master wandb switch: also gates CAPTURE_VIDEO below (no wandb -> no video upload)
-CAPTURE_VIDEO: False           # upload eval/final-rollout clips to wandb; only has effect if TRACK is also True
+CAPTURE_VIDEO: False           # upload one final-rollout clip per task to wandb; only has effect if TRACK is also True
 
-SAVE_MODEL: False             # whether train()'s own eval_and_vid() checkpoints/evaluates at the end of each task.
-                               # Off here: it's redundant with the continual orchestrator's own task_{i}.cleanrl_model
-                               # checkpoint + crl/R/{i}_{i} eval (which always happen regardless of this flag), and
-                               # its "eval-{task}/episodic_return_mod" metric was a second, differently-seeded
-                               # measurement of that same diagonal cell rather than anything new.
-
-# Periodic (mid-training) eval+checkpoint+video, on top of the end-of-task one above.
-# Off by default because with a short per-task budget it just adds overhead; turn on
-# to sanity-check learning curves for a single task during debugging.
-EVAL_DURING_TRAIN: False
-EVAL_EVERY: 1000              # in PPO iterations, not env steps; only matters if EVAL_DURING_TRAIN is True
-
-# On here (unlike the single-task config): every task after task 0 resumes from carried-
-# over params on a freshly-reset env, so charts-{task}/avg_episodic_return(_length) would
-# otherwise show a hard 0 floor for the first few iterations - looking exactly like the
-# agent forgot everything, when it's really just LogWrapper's per-env "last completed
-# episode" bookkeeping warming back up. NaN shows as a gap instead of a fake dip.
+# Every task after task 0 resumes from carried-over params on a freshly-reset env, so
+# charts-{task}/avg_episodic_return(_length) would otherwise show a hard 0 floor for the
+# first few iterations - looking exactly like the agent forgot everything, when it's
+# really just LogWrapper's per-env "last completed episode" bookkeeping warming back up.
+# NaN shows as a gap instead of a fake dip.
 NAN_UNTIL_FIRST_EPISODE: True
-
-# Unused elsewhere in this repo (no `config["..."]` read for these anywhere in
-# ppo_crl_finetune.py / ppo_crl_continual.py / ppo_crl_eval.py) - leftover from the
-# CleanRL template this trainer was adapted from. Safe to delete; kept only so this
-# file stays diffable against the other alg/*.yaml configs.
-UPLOAD_MODEL: False
-HF_ENTITY: ""
 
 # =============================================================================
 # Observation modality - PIXEL_BASED picks the network/observation pipeline; the two
@@ -55,12 +36,6 @@ TASK_MODS:
   - []
   - ["lazy_enemy"]
   - ["random_enemy"]
-
-# Not read directly by the continual orchestrator - each task overrides both
-# TRAIN_MODS and EVAL_MODS with its own TASK_MODS[i] entry before calling train().
-# Kept here only because train() indexes config["EVAL_MODS"] unconditionally (it's
-# also the top-level ppo_crl_finetune.py single-task entrypoint's config schema).
-EVAL_MODS: []
 
 # Retention-matrix evaluation (fills R[i,j] for j <= i after each task i finishes).
 # EVAL_SEED is held fixed across every cell of the matrix so differences in R
@@ -111,9 +86,3 @@ CLIP_COEF: 0.1                 # PPO policy-ratio clip range
 ENT_COEF: 0.01                 # entropy bonus weight (encourages exploration)
 VF_COEF: 0.5                   # value-loss weight in the combined loss
 MAX_GRAD_NORM: 0.5             # global gradient-norm clip, applied before the Adam step
-
-# Unused: `ppo_loss` never reads config["CLIP_VLOSS"] (value loss is always plain
-# MSE, no clipped-value-loss variant implemented) and `update_ppo` never reads
-# config["TARGET_KL"] (no early-stopping-on-KL logic implemented). Safe to delete.
-CLIP_VLOSS: False
-TARGET_KL: null
