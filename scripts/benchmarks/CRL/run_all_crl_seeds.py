@@ -1,28 +1,16 @@
 # =============================================================================
 # Launch ppo_crl_continual.py across multiple seed replicates, in parallel across GPUs.
-# =============================================================================
-# Mirrors scripts/benchmarks/run_all_pqn.py's pattern (subprocess pool + worker queue +
-# CUDA_VISIBLE_DEVICES pinning), adapted for this CRL harness: one seed sweep of one
-# alg config, not an env x seed x config grid. The continual training loop is a Python
-# host-side loop over tasks doing real disk I/O between them (checkpoint writes,
-# evaluate() reading checkpoints back), so it can't be vmapped the way pqn_agent.py
-# vmaps its NUM_SEEDS - independent OS processes is the only way to parallelize seeds
-# here.
+# Mirrors run_all_pqn.py's subprocess-pool pattern; independent OS processes rather
+# than pqn_agent.py's jax.vmap, since the continual loop does real disk I/O per task.
 #
-# Only SEED is varied between replicates; EVAL_SEED is left untouched (whatever the alg
-# config sets) so every replicate is scored under an identical eval protocol - otherwise
-# eval-rollout noise would be a confound mixed into your seed-to-seed variance. Each
-# replicate's outputs already land in a SEED-namespaced runs/{...}_{SEED}/ dir (see
-# ppo_crl_continual.py), so parallel replicates can't collide on disk.
-#
-# After all seeds finish, aggregate their runs/.../matrix.json files with
-# aggregate_crl_seeds.py.
+# Only SEED varies between replicates - EVAL_SEED is left untouched so every replicate
+# is scored under an identical eval protocol (otherwise eval noise would be a confound
+# in the seed-to-seed variance).
 #
 # Usage:
 #   python run_all_crl_seeds.py --gpus 0,1,2,3 --seeds 0,1,2,3,4
 #   python run_all_crl_seeds.py --gpus 0 --seeds 0,1,2 -- alg.TOTAL_TIMESTEPS=1000000
-# (anything after the flags above is forwarded verbatim to ppo_crl_continual.py, e.g.
-# Hydra overrides for TASK_MODS/EVAL_EPISODES/etc.)
+# (anything after the flags above is forwarded verbatim to ppo_crl_continual.py)
 # =============================================================================
 
 import argparse
@@ -31,10 +19,10 @@ import queue
 import subprocess
 from concurrent.futures import ThreadPoolExecutor
 
-DEFAULT_SEEDS = [0, 1, 2, 3, 4]
+DEFAULT_SEEDS = [0, 1, 2]
 
-# Concurrent processes per GPU. Keep at 1 unless a single seed run comfortably fits
-# multiple times in one GPU's memory (NUM_ENVS=8192 by default does not).
+# Concurrent processes per GPU; keep at 1 unless a seed run comfortably fits multiple
+# times in GPU memory (default NUM_ENVS=8192 does not).
 WORKERS_PER_GPU = 1
 
 
@@ -79,8 +67,7 @@ def main():
     )
     parser.add_argument("--alg", type=str, default="ppo_crl_continual", help="Hydra alg config name (config/alg/<name>.yaml).")
 
-    # Parse known args; anything else gets forwarded verbatim to ppo_crl_continual.py
-    # (e.g. `alg.TOTAL_TIMESTEPS=...`, `alg.TASK_MODS=...`).
+    # Anything unrecognized is forwarded verbatim to ppo_crl_continual.py.
     args, extra_args = parser.parse_known_args()
 
     gpus = [g.strip() for g in args.gpus.split(",") if g.strip()]

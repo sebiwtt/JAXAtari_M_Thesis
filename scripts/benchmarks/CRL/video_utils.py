@@ -1,13 +1,5 @@
-"""Video capture and wandb-logging helpers for the PPO CRL continual-finetuning run.
-
-Generated once training ends: one clip on the actual training environment (whatever
-mod that task used), plus one per mod the agent was evaluated on, so a run gives a
-quick visual read on how the agent behaves across the whole CRL task sequence.
-
-This lives outside ``ppo_trainer.py`` because it's not part of the actual PPO
-algorithm - just observability - and pulling it out keeps the training script focused
-on the training loop.
-"""
+"""Final-video capture and wandb logging, kept out of ppo_trainer.py since it's
+observability, not part of the PPO algorithm itself."""
 from typing import Callable
 
 import jax
@@ -28,17 +20,15 @@ def _generate_single_final_video(
     video_label: str,
     video_index: int = 0,
 ):
-    """Greedily roll out the trained policy on one env configuration and upload the clip.
+    """Greedily roll out the trained policy on one env config and upload the clip.
 
-    Unlike the periodic eval video, this uses a plain Python loop instead of
-    ``jax.lax.scan`` so we can break out as soon as the episode ends instead of having to
-    fix the rollout length ahead of time.
+    Plain Python loop (not jax.lax.scan) so it can break as soon as the episode ends.
     """
     if not config["CAPTURE_VIDEO"]:
         return None
 
-    # A second, unwrapped env instance so the renderer isn't affected by any
-    # pixel-resizing/smoothing the training wrappers apply for the agent's benefit.
+    # Unwrapped env so the renderer isn't affected by the training wrappers'
+    # pixel-resizing/smoothing.
     renderer_local = jaxatari.make(config["ENV_ID"]).renderer
     env = make_env(
         config["ENV_ID"],
@@ -61,8 +51,7 @@ def _generate_single_final_video(
     max_steps = 5000
 
     for _ in range(max_steps):
-        # The network expects a batch dimension: (B, F, H, W).
-        policy_obs = obs[None, ...]
+        policy_obs = obs[None, ...]  # network expects a batch dim: (B, F, H, W)
         hidden = network.apply(agent_state.params.network_params, policy_obs)
         logits = actor.apply(agent_state.params.actor_params, hidden)
         action = jnp.argmax(logits, axis=-1)[0]  # greedy action, no exploration for videos
@@ -73,8 +62,7 @@ def _generate_single_final_video(
         obs = obs.squeeze()
         total_reward += float(reward)
 
-        # Wrappers nest the underlying Atari state several layers deep; unwrap down to
-        # the state the base renderer actually knows how to draw.
+        # Unwrap to the state the base renderer knows how to draw.
         state_for_render = env_state
         while hasattr(state_for_render, "atari_state"):
             state_for_render = state_for_render.atari_state

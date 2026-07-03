@@ -1,11 +1,7 @@
 # =============================================================================
-# Aggregate ppo_crl_continual.py results across multiple seed replicates
-# =============================================================================
-# Each seed run (see run_all_crl_seeds.py) writes its own runs/{...}_{SEED}/matrix.json.
-# This loads N of them, checks they share the same task sequence, and reports
-# elementwise mean +/- std across seeds for R, R_rand, and Retention - the numbers
-# that belong in a thesis table/plot instead of a single (possibly lucky/unlucky)
-# seed's matrix.
+# Aggregate ppo_crl_continual.py results (see run_all_crl_seeds.py) across seed
+# replicates: loads each runs/{...}_{SEED}/matrix.json, checks they share the same
+# task sequence, and reports elementwise mean +/- std for R, R_rand, and Retention.
 # =============================================================================
 
 import argparse
@@ -43,9 +39,8 @@ def aggregate(paths: list[str]) -> dict:
     R_rand_stack = np.array([run["R_rand"] for run in runs])  # (num_seeds, T)
     Retention_stack = np.array([run["Retention"] for run in runs])  # (num_seeds, T, T)
 
-    # Cells that are NaN in some seeds but not others (e.g. EVAL_FULL_MATRIX differed
-    # between replicates) still aggregate via nanmean/nanstd, but silently over fewer
-    # than num_seeds seeds - flag that instead of hiding it.
+    # Flag cells that are NaN in only some seeds (e.g. EVAL_FULL_MATRIX differed between
+    # replicates) instead of silently averaging over fewer than num_seeds seeds.
     for name, stack in [("R", R_stack), ("Retention", Retention_stack)]:
         valid_counts = np.sum(~np.isnan(stack), axis=0)
         inconsistent = (valid_counts > 0) & (valid_counts < len(runs))

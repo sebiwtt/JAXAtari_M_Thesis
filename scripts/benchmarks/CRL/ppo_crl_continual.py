@@ -1,32 +1,18 @@
 # =============================================================================
 # Naive-finetuning continual-RL evaluation harness for the JAXtari PPO trainer
 # =============================================================================
-# Trains ONE agent sequentially over an ordered list of single-mod Pong tasks,
-# carrying parameters forward across tasks (naive finetuning: no replay, no
-# regularization, no architecture masking - the simplest possible CL baseline).
-# After each task, evaluates the CURRENT agent on every task seen so far to fill
-# in one row of a lower-triangular retention matrix:
+# Trains ONE agent sequentially over ordered single-mod Pong tasks, carrying params
+# forward (naive finetuning). After each task, evaluates on every task seen so far:
 #
-#   R[i, j]         = mean return of the agent trained through task i, evaluated on task j  (j <= i)
-#   R_rand[j]        = mean return of a FRESH, UNTRAINED agent evaluated on task j - the empirical
-#                       "knows nothing about this task" floor. Needed because that floor isn't 0 in
-#                       Pong (a random policy scores close to -21, not 0), so a plain R[i,j]/R[j,j]
-#                       ratio silently assumes the wrong floor and can land outside [0, 1] or read as
-#                       "90% retained" when the agent is actually much closer to random than to expert.
-#   Retention[i, j] = (R[i, j] - R_rand[j]) / (R[j, j] - R_rand[j])                            (j <= i)
-#                       1.0 = matches original post-task-j performance, 0.0 = performs like a random
-#                       agent on task j.
+#   R[i, j]         = return of the agent trained through task i, evaluated on task j  (j <= i)
+#   R_rand[j]       = return of a fresh/untrained agent on task j - the "knows nothing" floor,
+#                     not 0 (Pong's random-policy floor is close to -21)
+#   Retention[i, j] = (R[i, j] - R_rand[j]) / (R[j, j] - R_rand[j])                     (j <= i)
+#                     1.0 = matches post-task-j performance, 0.0 = performs like random.
 #
-# With EVAL_FULL_MATRIX: True, j also ranges over j > i - i.e. the agent trained only
-# through task i is additionally evaluated on tasks it hasn't been trained on yet. That
-# upper triangle is FORWARD transfer (zero-shot generalization to a not-yet-seen mod),
-# as opposed to the lower triangle's BACKWARD transfer/retention (forgetting of already-
-# seen mods). Same R/R_rand/Retention definitions apply to both regions - a Retention
-# cell doesn't know or care whether j is a past or future task relative to i.
+# EVAL_FULL_MATRIX also fills j > i: forward transfer to not-yet-trained tasks.
 #
-# This file only orchestrates; the actual PPO loop lives in `ppo_trainer.train` and
-# evaluation lives in `ppo_eval.evaluate` (see their docstrings/comments for the
-# `init_params` resume path and the episode-completion signal, respectively).
+# Orchestration only; PPO lives in `ppo_trainer.train`, evaluation in `ppo_eval.evaluate`.
 # =============================================================================
 
 import json
@@ -67,11 +53,10 @@ def _print_vector(name: str, v: np.ndarray, labels: list[str]) -> None:
 
 
 def _init_random_agent_params(config: dict, key: jax.random.PRNGKey) -> AgentParams:
-    """Freshly-initialized, completely untrained params - the R_rand floor for retention.
+    """Freshly-initialized, untrained params - the R_rand floor for retention.
 
-    Mirrors `train()`'s own fresh-init branch (same network/actor/critic classes and init
-    calls) but standalone, since `train()` always runs at least one PPO iteration (RTPT
-    requires max_iterations > 0) and we explicitly want zero training here.
+    Mirrors `train()`'s fresh-init branch, standalone, since `train()` always runs at
+    least one PPO iteration (RTPT requires max_iterations > 0).
     """
     env = make_env(
         config["ENV_ID"], config["SEED"], 1, [], config["PIXEL_BASED"], config["NATIVE_DOWNSCALING"], config["SMOOTH_IMAGE"]
@@ -101,8 +86,7 @@ def run_continual(config: dict) -> None:
     num_tasks = len(task_mods_list)
     labels = [_task_label(m) for m in task_mods_list]
 
-    # Mirror `train()`'s own derivation so the wandb step offset per task is known
-    # up front; `train()` recomputes the same thing internally from the same config.
+    # Mirrors train()'s own derivation, needed here for the wandb step offset.
     batch_size = int(config["NUM_ENVS"] * config["NUM_STEPS"])
     num_iterations = int(config["TOTAL_TIMESTEPS"] // batch_size)
 
@@ -117,18 +101,14 @@ def run_continual(config: dict) -> None:
             entity=config["ENTITY"],
             config=config,
             name=base_run_name,
-            # Same group for every SEED of an otherwise-identical sweep (see
-            # run_all_crl_seeds.py) so wandb's UI can overlay/aggregate seed
-            # replicates instead of showing N unrelated-looking runs.
-            group=group_name,
+            group=group_name,  # groups seed replicates of the same sweep in the wandb UI
             save_code=True,
         )
 
     Model = (Network, Actor, Critic) if config["PIXEL_BASED"] else (MLP_Network, Actor, Critic)
 
-    # --- Random-agent floor: R_rand[j], one eval pass per task with fresh/untrained
-    # params, no training. Keyed off EVAL_SEED (not SEED) so it's reproducible independent
-    # of whatever seed drives training, matching the rest of the retention machinery.
+    # Random-agent floor R_rand[j]: one eval pass per task, no training. Keyed off
+    # EVAL_SEED (not SEED) so it's independent of the training seed.
     rand_params = _init_random_agent_params(config, jax.random.PRNGKey(config["EVAL_SEED"]))
     rand_ckpt_path = f"{run_dir}/random_agent.cleanrl_model"
     with open(rand_ckpt_path, "wb") as f:
@@ -175,8 +155,6 @@ def run_continual(config: dict) -> None:
     for i in range(num_tasks):
         task_mods = task_mods_list[i]
         task_config = dict(config)
-        # Drives train()'s own env construction and (task-namespaced) final video, so
-        # the mid-training housekeeping matches what's actually being trained.
         task_config["TRAIN_MODS"] = tuple(task_mods)
 
         task_run_name = f"{base_run_name}_task{i}"
@@ -190,9 +168,7 @@ def run_continual(config: dict) -> None:
             wandb_group=labels[i],
         )
 
-        # Orchestrator's own checkpoint of the agent after task i, used to fill row i
-        # of the retention matrix. Same serialization format as `train()`'s internal
-        # `eval_and_vid` so the existing `evaluate()` can load it unmodified.
+        # Same serialization format as evaluate() expects, so it can load this unmodified.
         ckpt_path = f"{run_dir}/task_{i}.cleanrl_model"
         with open(ckpt_path, "wb") as f:
             f.write(
@@ -206,9 +182,8 @@ def run_continual(config: dict) -> None:
         print(f"[CRL] task {i} checkpoint saved to {ckpt_path}")
         ckpt_paths.append(ckpt_path)
 
-        # Lower triangle (j <= i) is backward transfer/retention: tasks already trained
-        # on. With EVAL_FULL_MATRIX also fill the upper triangle (j > i): forward transfer
-        # to tasks this checkpoint hasn't been trained on yet.
+        # j <= i: retention (tasks already trained on). EVAL_FULL_MATRIX also fills
+        # j > i: forward transfer to tasks not yet trained on.
         eval_js = range(num_tasks) if config.get("EVAL_FULL_MATRIX", False) else range(i + 1)
         for j in eval_js:
             eval_mods = task_mods_list[j]
@@ -239,7 +214,7 @@ def run_continual(config: dict) -> None:
             kind = "forward transfer" if j > i else "retention"
             print(f"[CRL] R[{i},{j}] ({kind}: train through task {i}={labels[i]!r}, eval on task {j}={labels[j]!r}) = {R[i, j]:.3f}")
 
-    diag = np.diag(R)  # R[j, j], fully populated by the time any row needs it as a denominator
+    diag = np.diag(R)  # R[j, j], populated before it's needed as a denominator
     Retention = np.full((num_tasks, num_tasks), np.nan)
     for i in range(num_tasks):
         for j in (range(num_tasks) if config.get("EVAL_FULL_MATRIX", False) else range(i + 1)):
