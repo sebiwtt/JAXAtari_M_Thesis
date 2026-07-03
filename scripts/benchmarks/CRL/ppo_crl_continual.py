@@ -17,6 +17,13 @@
 #                       1.0 = matches original post-task-j performance, 0.0 = performs like a random
 #                       agent on task j.
 #
+# With EVAL_FULL_MATRIX: True, j also ranges over j > i - i.e. the agent trained only
+# through task i is additionally evaluated on tasks it hasn't been trained on yet. That
+# upper triangle is FORWARD transfer (zero-shot generalization to a not-yet-seen mod),
+# as opposed to the lower triangle's BACKWARD transfer/retention (forgetting of already-
+# seen mods). Same R/R_rand/Retention definitions apply to both regions - a Retention
+# cell doesn't know or care whether j is a past or future task relative to i.
+#
 # This file only orchestrates; the actual PPO loop lives in `ppo_crl_finetune.train`
 # and evaluation lives in `ppo_crl_eval.evaluate` - both are reused unmodified in
 # spirit (train() gained an optional `init_params` resume path, evaluate() gained an
@@ -198,7 +205,11 @@ def run_continual(config: dict) -> None:
         print(f"[CRL] task {i} checkpoint saved to {ckpt_path}")
         ckpt_paths.append(ckpt_path)
 
-        for j in range(i + 1):
+        # Lower triangle (j <= i) is backward transfer/retention: tasks already trained
+        # on. With EVAL_FULL_MATRIX also fill the upper triangle (j > i): forward transfer
+        # to tasks this checkpoint hasn't been trained on yet.
+        eval_js = range(num_tasks) if config.get("EVAL_FULL_MATRIX", False) else range(i + 1)
+        for j in eval_js:
             eval_mods = task_mods_list[j]
             episodic_returns, _, completed = evaluate(
                 model_path=ckpt_path,
@@ -225,12 +236,13 @@ def run_continual(config: dict) -> None:
                     f"completed within the eval scan window; this cell's mean return may be inflated."
                 )
             R[i, j] = float(episodic_returns.mean())
-            print(f"[CRL] R[{i},{j}] (train through task {i}={labels[i]!r}, eval on task {j}={labels[j]!r}) = {R[i, j]:.3f}")
+            kind = "forward transfer" if j > i else "retention"
+            print(f"[CRL] R[{i},{j}] ({kind}: train through task {i}={labels[i]!r}, eval on task {j}={labels[j]!r}) = {R[i, j]:.3f}")
 
     diag = np.diag(R)  # R[j, j], fully populated by the time any row needs it as a denominator
     Retention = np.full((num_tasks, num_tasks), np.nan)
     for i in range(num_tasks):
-        for j in range(i + 1):
+        for j in (range(num_tasks) if config.get("EVAL_FULL_MATRIX", False) else range(i + 1)):
             denom = diag[j] - R_rand[j]
             if denom == 0:
                 print(
@@ -272,7 +284,7 @@ def run_continual(config: dict) -> None:
         for j in range(num_tasks):
             wandb.log({f"crl/R_rand/{j}": R_rand[j]})
         for i in range(num_tasks):
-            for j in range(i + 1):
+            for j in (range(num_tasks) if config.get("EVAL_FULL_MATRIX", False) else range(i + 1)):
                 wandb.log({f"crl/R/{i}_{j}": R[i, j], f"crl/retention/{i}_{j}": Retention[i, j]})
             wandb.log({f"crl/diag/{i}": R[i, i]})
         wandb.finish()

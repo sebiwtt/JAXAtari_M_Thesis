@@ -69,6 +69,13 @@ EVAL_MODS: []
 EVAL_EPISODES: 10             # parallel eval episodes per matrix cell; matrix noise shrinks ~1/sqrt(this)
 EVAL_SEED: 12345
 
+# Off (default): only fill j <= i (backward transfer/retention - tasks already trained
+# on), the standard lower-triangular CRL matrix. On: also fill j > i, i.e. after training
+# through task i, additionally eval on tasks NOT yet trained on (forward transfer / zero-
+# shot generalization to a future mod). Roughly doubles the number of eval() calls for a
+# full task list, since it's now num_tasks^2 instead of num_tasks*(num_tasks+1)/2.
+EVAL_FULL_MATRIX: False
+
 # Fixed per-task training budget: identical TOTAL_TIMESTEPS (and therefore identical
 # NUM_ITERATIONS, since that's derived as TOTAL_TIMESTEPS // (NUM_ENVS * NUM_STEPS))
 # is used for every task in the sequence, so no task gets an unfair training-time
