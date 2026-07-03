@@ -12,7 +12,7 @@ import re
 
 import numpy as np
 
-from ppo_crl_continual import _print_matrix, _print_vector
+from crl_benchmark import _print_matrix, _print_vector
 
 
 def _load_matrix_jsons(paths: list[str]) -> list[dict]:
