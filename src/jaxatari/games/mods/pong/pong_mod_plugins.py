@@ -24,6 +24,24 @@ def _recolor_sprite(filename: str, original_rgb: tuple, new_rgb: tuple) -> np.nd
 def _make_recolored_background(new_color: tuple) -> np.ndarray:
     return _recolor_sprite("background.npy", (144, 72, 17), new_color)
 
+
+def _make_recolored_digits(pattern: str, original_rgb: tuple, new_rgb: tuple) -> np.ndarray:
+    """Load the 10 digit sprites, recolor them, and center-pad to uniform dims (mirrors the base digit loader)."""
+    digits = [_recolor_sprite(pattern.format(i), original_rgb, new_rgb) for i in range(10)]
+    max_h = max(d.shape[0] for d in digits)
+    max_w = max(d.shape[1] for d in digits)
+    padded = []
+    for digit in digits:
+        pad_h = max_h - digit.shape[0]
+        pad_w = max_w - digit.shape[1]
+        padded.append(np.pad(
+            digit,
+            ((pad_h // 2, pad_h - pad_h // 2), (pad_w // 2, pad_w - pad_w // 2), (0, 0)),
+            mode="constant",
+            constant_values=0,
+        ))
+    return np.stack(padded)
+
 # --- 1. Individual Mod Plugins ---
 class LazyEnemyMod(JaxAtariInternalModPlugin):
     #conflicts_with = ["random_enemy"]
@@ -162,4 +180,123 @@ class ChangePlayerColorMod(JaxAtariInternalModPlugin):
             "type": "single",
             "data": _recolor_sprite("player.npy", (92, 186, 92), _NEW_PLAYER_COLOR),
         }
+    }
+
+
+class SwapPaddleColorsMod(JaxAtariInternalModPlugin):
+    """Swaps the paddle colors: player becomes orange, enemy becomes green."""
+    _PLAYER_RGB = (92, 186, 92)
+    _ENEMY_RGB = (213, 130, 74)
+
+    constants_overrides = {
+        "PLAYER_COLOR": _ENEMY_RGB,
+        "ENEMY_COLOR": _PLAYER_RGB,
+    }
+    asset_overrides = {
+        "player": {
+            "name": "player",
+            "type": "single",
+            "data": _recolor_sprite("player.npy", _PLAYER_RGB, _ENEMY_RGB),
+        },
+        "enemy": {
+            "name": "enemy",
+            "type": "single",
+            "data": _recolor_sprite("enemy.npy", _ENEMY_RGB, _PLAYER_RGB),
+        },
+    }
+
+
+class ChangeBallColorMod(JaxAtariInternalModPlugin):
+    """Changes the ball color. Default: yellow (255, 255, 0)."""
+    _NEW_BALL_COLOR = (255, 255, 0)
+
+    constants_overrides = {"BALL_COLOR": _NEW_BALL_COLOR}
+    asset_overrides = {
+        "ball": {
+            "name": "ball",
+            "type": "single",
+            "data": _recolor_sprite("ball.npy", (236, 236, 236), _NEW_BALL_COLOR),
+        }
+    }
+
+
+class ChangeScoreColorMod(JaxAtariInternalModPlugin):
+    """Changes both score displays (green/orange digits) to a single color. Default: white (236, 236, 236)."""
+    _NEW_SCORE_COLOR = (236, 236, 236)
+
+    asset_overrides = {
+        "player_digits": {
+            "name": "player_digits",
+            "type": "digits",
+            "data": _make_recolored_digits("player_score_{}.npy", (92, 186, 92), _NEW_SCORE_COLOR),
+        },
+        "enemy_digits": {
+            "name": "enemy_digits",
+            "type": "digits",
+            "data": _make_recolored_digits("enemy_score_{}.npy", (213, 130, 74), _NEW_SCORE_COLOR),
+        },
+    }
+
+
+class GrayscaleThemeMod(JaxAtariInternalModPlugin):
+    """
+    Full monochrome theme: recolors every element to a distinct shade of gray.
+
+    Shades are hand-picked (not a photometric luminance conversion) because the
+    original player (92, 186, 92) and enemy (213, 130, 74) have nearly identical
+    luminance (~147 vs ~148) and would collapse to the same gray. The chosen
+    values keep every element legibly distinct, ordered dark background -> enemy
+    -> walls/score -> player -> ball (brightest, easiest to track).
+    """
+    _ORIG_BACKGROUND = (144, 72, 17)
+    _ORIG_PLAYER = (92, 186, 92)
+    _ORIG_ENEMY = (213, 130, 74)
+    _ORIG_BALL = (236, 236, 236)
+
+    _GRAY_BACKGROUND = (34, 34, 34)
+    _GRAY_PLAYER = (200, 200, 200)
+    _GRAY_ENEMY = (120, 120, 120)
+    _GRAY_BALL = (236, 236, 236)
+    _GRAY_WALL = (170, 170, 170)
+
+    constants_overrides = {
+        "BACKGROUND_COLOR": _GRAY_BACKGROUND,
+        "PLAYER_COLOR": _GRAY_PLAYER,
+        "ENEMY_COLOR": _GRAY_ENEMY,
+        "BALL_COLOR": _GRAY_BALL,
+        # Walls are procedural from SCORE_COLOR; overriding it recolors them.
+        "SCORE_COLOR": _GRAY_WALL,
+        "WALL_COLOR": _GRAY_WALL,
+    }
+    asset_overrides = {
+        "background": {
+            "name": "background",
+            "type": "background",
+            "data": _make_recolored_background(_GRAY_BACKGROUND),
+        },
+        "player": {
+            "name": "player",
+            "type": "single",
+            "data": _recolor_sprite("player.npy", _ORIG_PLAYER, _GRAY_PLAYER),
+        },
+        "enemy": {
+            "name": "enemy",
+            "type": "single",
+            "data": _recolor_sprite("enemy.npy", _ORIG_ENEMY, _GRAY_ENEMY),
+        },
+        "ball": {
+            "name": "ball",
+            "type": "single",
+            "data": _recolor_sprite("ball.npy", _ORIG_BALL, _GRAY_BALL),
+        },
+        "player_digits": {
+            "name": "player_digits",
+            "type": "digits",
+            "data": _make_recolored_digits("player_score_{}.npy", _ORIG_PLAYER, _GRAY_PLAYER),
+        },
+        "enemy_digits": {
+            "name": "enemy_digits",
+            "type": "digits",
+            "data": _make_recolored_digits("enemy_score_{}.npy", _ORIG_ENEMY, _GRAY_ENEMY),
+        },
     }
