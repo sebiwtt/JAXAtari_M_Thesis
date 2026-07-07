@@ -3,7 +3,7 @@ import numpy as np
 import jax
 import jax.numpy as jnp
 from functools import partial
-from jaxatari.games.jax_pong import PongState
+from jaxatari.games.jax_pong import PongState, JaxPong
 from jaxatari.modification import JaxAtariInternalModPlugin, JaxAtariPostStepModPlugin
 import chex
 from jaxatari.environment import JAXAtariAction as Action
@@ -300,3 +300,310 @@ class GrayscaleThemeMod(JaxAtariInternalModPlugin):
             "data": _make_recolored_digits("enemy_score_{}.npy", _ORIG_ENEMY, _GRAY_ENEMY),
         },
     }
+
+
+class _BallSpeedMod(JaxAtariInternalModPlugin):
+    """
+    Base class for ball-speed mods. Reuses the unmodified base ball physics
+    (JaxPong._ball_step) instead of reimplementing collision handling.
+
+    - _SUBSTEPS > 1 speeds the ball up by running the base step that many times
+      per frame. Each sub-step still moves only 1-4 px and runs full collision
+      detection, so the ball never tunnels through a paddle.
+    - _PERIOD > 1 slows the ball down by advancing it only once every _PERIOD
+      frames (the ball is frozen on the other frames).
+    """
+    _SUBSTEPS: int = 1
+    _PERIOD: int = 1
+
+    @partial(jax.jit, static_argnums=(0,))
+    def _ball_step(self, state: PongState, action: chex.Array) -> PongState:
+        def advance(st: PongState) -> PongState:
+            for _ in range(self._SUBSTEPS):
+                st = JaxPong._ball_step(self._env, st, action)
+            return st
+
+        if self._PERIOD > 1:
+            should_move = (state.step_counter % self._PERIOD) == 0
+            return jax.lax.cond(should_move, advance, lambda st: st, state)
+        return advance(state)
+
+
+class FastBallMod(_BallSpeedMod):
+    """Ball moves twice as fast (two collision-safe sub-steps per frame)."""
+    _SUBSTEPS = 2
+
+
+class SlowBallMod(_BallSpeedMod):
+    """Ball moves at half speed (advances every other frame)."""
+    _PERIOD = 2
+
+
+# --- Magnitude-scaled ball speed (N collision-safe sub-steps per frame) ---
+# x3-x5 also scale the enemy paddle speed (ENEMY_STEP_SIZE, base 2) by the same
+# factor, so the built-in opponent can still track the faster ball and the game
+# stays competitive. x2 leaves the enemy unchanged (it keeps up at that speed).
+class BallSpeedX2Mod(_BallSpeedMod):
+    """Ball speed x2."""
+    _SUBSTEPS = 2
+    constants_overrides = {"ENEMY_STEP_SIZE": 4}
+
+
+class BallSpeedX3Mod(_BallSpeedMod):
+    """Ball speed x3, enemy paddle speed scaled x3 to match."""
+    _SUBSTEPS = 3
+    constants_overrides = {"ENEMY_STEP_SIZE": 6}
+
+
+class BallSpeedX4Mod(_BallSpeedMod):
+    """Ball speed x4, enemy paddle speed scaled x4 to match."""
+    _SUBSTEPS = 4
+    constants_overrides = {"ENEMY_STEP_SIZE": 8}
+
+
+class BallSpeedX5Mod(_BallSpeedMod):
+    """Ball speed x5, enemy paddle speed scaled x5 to match."""
+    _SUBSTEPS = 5
+    constants_overrides = {"ENEMY_STEP_SIZE": 10}
+
+
+class FastPaddleMod(JaxAtariInternalModPlugin):
+    """
+    Doubles the player paddle's top speed (5.75 -> 11.5).
+
+    PADDLE_MAX_SPEED is the analog target speed the paddle accelerates toward in
+    _player_step, and it also sets the threshold for the max-speed ball boost in
+    _ball_step, so both scale together and the boost mechanic stays consistent.
+    """
+    constants_overrides = {"PADDLE_MAX_SPEED": 11.5}
+
+
+class SlowPaddleMod(JaxAtariInternalModPlugin):
+    """Halves the player paddle's top speed (5.75 -> 2.875)."""
+    constants_overrides = {"PADDLE_MAX_SPEED": 2.875}
+
+
+def _random_serve_velocity(key, vx_choices, vy_choices):
+    """Pick a random (ball_vel_x, ball_vel_y) serve vector from the given choices."""
+    kx, ky = jax.random.split(key)
+    vel_x = jax.random.choice(kx, vx_choices).astype(jnp.int32)
+    vel_y = jax.random.choice(ky, vy_choices).astype(jnp.int32)
+    return vel_x, vel_y
+
+
+class RandomServeMod(JaxAtariInternalModPlugin):
+    """
+    Randomizes the direction and angle of every serve.
+
+    Base Pong serves deterministically: horizontal direction always points at
+    whoever conceded and the vertical component is always +/-1 (a fixed 45 deg).
+    This mod instead draws the serve independently at random:
+      - direction: ball_vel_x in {-1, +1}  (served left or right, 50/50)
+      - angle:     ball_vel_y in {-2, -1, +1, +2}  (up/down, two steepnesses)
+    giving 8 equally likely serve vectors. Both the opening serve (reset) and
+    every post-goal serve are covered. Integer velocities are kept small so
+    collision detection stays exact (no tunneling).
+
+    Randomness is drawn from state.key, which the base step() advances every
+    frame, so each serve differs. The serve vector is chosen once on the goal
+    frame and held through the 60-frame respawn pause before release.
+    """
+    _VEL_X_CHOICES = jnp.array([-1, 1], dtype=jnp.int32)
+    _VEL_Y_CHOICES = jnp.array([-2, -1, 1, 2], dtype=jnp.int32)
+
+    @partial(jax.jit, static_argnums=(0,))
+    def reset(self, key: chex.PRNGKey = jax.random.PRNGKey(42)):
+        obs, state = JaxPong.reset(self._env, key)
+        vel_x, vel_y = _random_serve_velocity(state.key, self._VEL_X_CHOICES, self._VEL_Y_CHOICES)
+        # ball velocity is not part of the observation, so obs is unaffected
+        state = state.replace(ball_vel_x=vel_x, ball_vel_y=vel_y)
+        return obs, state
+
+    @partial(jax.jit, static_argnums=(0,))
+    def _reset_ball_after_goal(self, state_and_goal):
+        state, _scored_right = state_and_goal
+        vel_x, vel_y = _random_serve_velocity(state.key, self._VEL_X_CHOICES, self._VEL_Y_CHOICES)
+        return (
+            jnp.array(self._env.consts.BALL_START_X).astype(jnp.int32),
+            jnp.array(self._env.consts.BALL_START_Y).astype(jnp.int32),
+            vel_x,
+            vel_y,
+        )
+
+
+def _nudge_ball(state: PongState, dx: int, dy: int, buffer: int) -> PongState:
+    """Shift the ball by (dx, dy) every `buffer` steps; identity otherwise.
+
+    A constant *positional* pull (applied after the step) rather than a change to
+    the integer velocity: this bends the ball's path like a steady drift/gravity
+    without compounding into runaway speed, so bounce collisions stay exact. A
+    1 px overshoot into the (10-16 px thick) walls is corrected by the next
+    frame's bounce.
+    """
+    return jax.lax.cond(
+        state.step_counter % buffer == 0,
+        lambda s: s.replace(ball_x=s.ball_x + dx, ball_y=s.ball_y + dy),
+        lambda s: s,
+        operand=state,
+    )
+
+
+class BallGravityMod(JaxAtariPostStepModPlugin):
+    """
+    Pulls the ball toward the floor by 1 px every _BUFFER steps.
+
+    In Pong y increases downward (top wall y=24, bottom wall y=194), so the pull
+    is +y. The downward bias curves the ball's trajectory and, over a rally,
+    steadily flattens its bounce angles toward the bottom.
+    """
+    _BUFFER = 4
+
+    @partial(jax.jit, static_argnums=(0,))
+    def run(self, prev_state: PongState, new_state: PongState) -> PongState:
+        return _nudge_ball(new_state, 0, 1, self._BUFFER)
+
+
+class BallDriftMod(JaxAtariPostStepModPlugin):
+    """
+    Steadily drifts the ball sideways by _DIRECTION px every _BUFFER steps
+    (default: +1 = toward the player's side on the right).
+    """
+    _BUFFER = 4
+    _DIRECTION = 1
+
+    @partial(jax.jit, static_argnums=(0,))
+    def run(self, prev_state: PongState, new_state: PongState) -> PongState:
+        return _nudge_ball(new_state, self._DIRECTION, 0, self._BUFFER)
+
+
+class ScaleRewardMod(JaxAtariInternalModPlugin):
+    """
+    Scales the environment reward by a constant factor (default 2x).
+
+    Base reward is the per-step change in score differential (+1 when the player
+    scores, -1 when the enemy scores). Patching _get_reward scales both signs
+    symmetrically and leaves the game dynamics untouched. The mod wrapper
+    recomputes reward via this same method after each step, so the scaled value
+    is what the caller receives.
+    """
+    _SCALE = 2
+
+    @partial(jax.jit, static_argnums=(0,))
+    def _get_reward(self, previous_state: PongState, state: PongState):
+        return JaxPong._get_reward(self._env, previous_state, state) * self._SCALE
+
+
+class RewardPerHitMod(JaxAtariInternalModPlugin):
+    """
+    Replaces the reward: +_POINTS_PER_HIT each time the player paddle hits the
+    ball, and 0 for everything else (scoring and conceding no longer reward).
+
+    A player hit is the only event that reverses the ball's horizontal velocity
+    from moving toward the player (>0, rightward) to moving away (<0). Serves and
+    enemy-paddle hits never produce that +->- flip, and the extra 'ball in the
+    player's half' guard keeps detection correct even alongside random_serve
+    (which serves in a random direction). One hit -> one point (the flip happens
+    on a single step), so rallies are rewarded independently of winning.
+    """
+    _POINTS_PER_HIT = 1
+
+    @partial(jax.jit, static_argnums=(0,))
+    def _get_reward(self, previous_state: PongState, state: PongState):
+        player_hit = (
+            (previous_state.ball_vel_x > 0)
+            & (state.ball_vel_x < 0)
+            & (state.ball_x > self._env.consts.BALL_START_X)
+        )
+        return (player_hit.astype(jnp.int32) * self._POINTS_PER_HIT)
+
+
+class TimePenaltyMod(JaxAtariInternalModPlugin):
+    """
+    Adds a constant per-step time penalty to the reward to encourage fast
+    scoring: reward = base goal reward (+1 score / -1 concede) - _PENALTY.
+
+    The penalty is applied every step (including the respawn pauses, which are
+    idle for the agent), so the episode return equals the final score
+    differential minus _PENALTY * (number of steps).
+
+    Tuning: for scoring to stay the dominant incentive, _PENALTY must be well
+    below 1 / (steps per point). Rallies here run ~500-700 steps per point, so
+    the default 0.001 keeps a scored point clearly net-positive (~+0.3 to +0.5)
+    while rewarding faster scoring. Raising it toward ~0.01 makes points
+    net-negative and perversely encourages losing quickly, so tune to the
+    timescale of your agent.
+    """
+    _PENALTY = 0.001
+
+    @partial(jax.jit, static_argnums=(0,))
+    def _get_reward(self, previous_state: PongState, state: PongState):
+        return JaxPong._get_reward(self._env, previous_state, state) - self._PENALTY
+
+
+class AsymmetricRewardMod(JaxAtariInternalModPlugin):
+    """
+    Asymmetric reward: +1 when the player scores, but no -1 penalty when the
+    enemy scores (conceding gives 0). Since conceding is the only source of
+    negative reward in base Pong, this is just clipping the reward at 0. The
+    game dynamics are untouched; only the reward signal changes.
+    """
+    @partial(jax.jit, static_argnums=(0,))
+    def _get_reward(self, previous_state: PongState, state: PongState):
+        return jnp.maximum(JaxPong._get_reward(self._env, previous_state, state), 0)
+
+
+class InvertedRewardMod(JaxAtariInternalModPlugin):
+    """
+    Inverts the reward: +1 when the enemy scores, -1 when the player scores.
+    The objective flips from winning to losing. Game dynamics are untouched;
+    only the sign of the reward signal changes.
+    """
+    @partial(jax.jit, static_argnums=(0,))
+    def _get_reward(self, previous_state: PongState, state: PongState):
+        return -JaxPong._get_reward(self._env, previous_state, state)
+
+
+def apply_render_noise(raster: jnp.ndarray, key: chex.PRNGKey, level: float) -> jnp.ndarray:
+    """Blend uniform pixel noise into a rendered frame.
+
+    out = (1 - level) * image + level * uniform_noise, per channel, so `level`
+    is the noise fraction (0 = clean, 1 = pure static). The noise is keyed on
+    the frame's PRNG key (advanced every step), so it animates frame to frame.
+    """
+    noise = jax.random.uniform(key, raster.shape, minval=0.0, maxval=255.0)
+    img = raster.astype(jnp.float32)
+    out = (1.0 - level) * img + level * noise
+    return jnp.clip(out, 0.0, 255.0).astype(jnp.uint8)
+
+
+class _RenderNoiseMod(JaxAtariInternalModPlugin):
+    """
+    Base marker for magnitude-scaled render-noise mods. Adds uniform pixel noise
+    to the rendered image (pixel observations), leaving game dynamics and the
+    object-centric observation untouched.
+
+    `render` cannot be patched by a plugin (it exists on both the env and the
+    renderer, which the mod controller treats as ambiguous), so the noise is
+    applied by PongEnvMod.render, which reads _NOISE_LEVEL from the active mod.
+    """
+    _NOISE_LEVEL: float = 0.0
+
+
+class RenderNoise10Mod(_RenderNoiseMod):
+    """20% render noise (80% image, 20% uniform static)."""
+    _NOISE_LEVEL = 0.1
+
+
+class RenderNoise20Mod(_RenderNoiseMod):
+    """40% render noise."""
+    _NOISE_LEVEL = 0.2
+
+
+class RenderNoise30Mod(_RenderNoiseMod):
+    """60% render noise."""
+    _NOISE_LEVEL = 0.3
+
+
+class RenderNoise40Mod(_RenderNoiseMod):
+    """80% render noise (image barely visible under static)."""
+    _NOISE_LEVEL = 0.4
