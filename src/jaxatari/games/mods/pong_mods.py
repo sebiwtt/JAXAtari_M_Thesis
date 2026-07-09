@@ -2,7 +2,7 @@ import os
 from functools import partial
 import jax
 from jaxatari.modification import JaxAtariModController
-from jaxatari.games.mods.pong.pong_mod_plugins import LazyEnemyMod, RandomEnemyMod, AlwaysZeroScoreMod, LinearMovementMod, ShiftPlayerMod, ShiftEnemyMod, NoFireMod, ChangeBackgroundColorMod, ChangePlayerColorMod, SwapPaddleColorsMod, ChangeBallColorMod, ChangeScoreColorMod, GrayscaleThemeMod, FastBallMod, SlowBallMod, FastPaddleMod, SlowPaddleMod, RandomServeMod, BallGravityMod, BallDriftMod, ScaleRewardMod, RewardPerHitMod, TimePenaltyMod, AsymmetricRewardMod, InvertedRewardMod, _RenderNoiseMod, RenderNoise20Mod, RenderNoise40Mod, RenderNoise60Mod, RenderNoise80Mod, apply_render_noise, BallSpeedX2Mod, BallSpeedX3Mod, BallSpeedX4Mod, BallSpeedX5Mod
+from jaxatari.games.mods.pong.pong_mod_plugins import LazyEnemyMod, RandomEnemyMod, AlwaysZeroScoreMod, LinearMovementMod, ShiftPlayerMod, ShiftEnemyMod, NoFireMod, ChangeBackgroundColorMod, ChangePlayerColorMod, SwapPaddleColorsMod, ChangeBallColorMod, ChangeScoreColorMod, GrayscaleThemeMod, FastBallMod, SlowBallMod, FastPaddleMod, SlowPaddleMod, RandomServeMod, BallGravityMod, BallDriftMod, ScaleRewardMod, RewardPerHitMod, TimePenaltyMod, AsymmetricRewardMod, InvertedRewardMod, ZoneScoringMod, SparseScoringMod, MissPenaltyMod, _RenderNoiseMod, RenderNoise20Mod, RenderNoise40Mod, RenderNoise60Mod, RenderNoise80Mod, apply_render_noise, BallSpeedX2Mod, BallSpeedX3Mod, BallSpeedX4Mod, BallSpeedX5Mod
 
 class PongEnvMod(JaxAtariModController):    
     """
@@ -11,14 +11,14 @@ class PongEnvMod(JaxAtariModController):
     """
 
     REGISTRY = {
-        "lazy_enemy": LazyEnemyMod,
+        # Old / Not categorized
         "random_enemy": RandomEnemyMod,
         "zero_score": AlwaysZeroScoreMod,
-        "linear_movement": LinearMovementMod,
         "shift_player": ShiftPlayerMod,
         "shift_enemy": ShiftEnemyMod,
         "no_fire": NoFireMod,
         "change_player_color": ChangePlayerColorMod,
+
         # New mods for CRL Sequences
         # Visual
         "change_background_color": ChangeBackgroundColorMod,
@@ -26,6 +26,7 @@ class PongEnvMod(JaxAtariModController):
         "change_ball_color": ChangeBallColorMod,
         "change_score_color": ChangeScoreColorMod,
         "grayscale_theme": GrayscaleThemeMod,
+
         # Dynamics
         "fast_ball": FastBallMod,
         "slow_ball": SlowBallMod,
@@ -33,18 +34,26 @@ class PongEnvMod(JaxAtariModController):
         "slow_paddle": SlowPaddleMod,
         "random_serve": RandomServeMod,
         "ball_gravity": BallGravityMod,
-        "ball_drift": BallDriftMod,
+        "ball_drift": BallDriftMod, # does not work well -> just makes ball faster
+        "linear_movement": LinearMovementMod,
+        "lazy_enemy": LazyEnemyMod,
+
         # Reward
         "scale_reward": ScaleRewardMod,
         "reward_per_hit": RewardPerHitMod,
         "time_penalty": TimePenaltyMod,
         "asymmetric_reward": AsymmetricRewardMod,
         "inverted_reward": InvertedRewardMod,
+        "zone_scoring": ZoneScoringMod,
+        "sparse_scoring": SparseScoringMod,
+        "miss_penalty": MissPenaltyMod,
+
         # Visual-Mag (scaled render noise)
         "render_noise_20": RenderNoise20Mod,
         "render_noise_40": RenderNoise40Mod,
         "render_noise_60": RenderNoise60Mod,
         "render_noise_80": RenderNoise80Mod,
+        
         # Dynamics-Mag (scaled ball speed)
         "ball_speed_x2": BallSpeedX2Mod,
         "ball_speed_x3": BallSpeedX3Mod,

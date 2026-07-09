@@ -563,6 +563,83 @@ class InvertedRewardMod(JaxAtariInternalModPlugin):
         return -JaxPong._get_reward(self._env, previous_state, state)
 
 
+class ZoneScoringMod(JaxAtariInternalModPlugin):
+    """
+    Placement / zone scoring: the player is rewarded +1 only when it scores into
+    a target region of the goal (default: the top third), 0 for a score outside
+    the region, and -1 for conceding (unchanged). This forces the agent to learn
+    to *aim* its shots rather than just returning the ball.
+
+    The player scores on the left goal (ball_x < 4). By the time _get_reward runs
+    the ball has already been reset to center, so the crossing height is taken
+    from previous_state.ball_y (the ball one frame before it crossed) -- accurate
+    to a pixel or two, which is far finer than the third-of-field zones.
+    """
+    _ZONE_TOP_FRACTION = 1.0 / 3.0  # top third of the playfield
+
+    @partial(jax.jit, static_argnums=(0,))
+    def _get_reward(self, previous_state: PongState, state: PongState):
+        c = self._env.consts
+        top = c.WALL_TOP_Y + c.WALL_TOP_HEIGHT          # interior top (y grows downward)
+        bottom = c.WALL_BOTTOM_Y
+        boundary = top + self._ZONE_TOP_FRACTION * (bottom - top)
+
+        player_scored = state.player_score > previous_state.player_score
+        enemy_scored = state.enemy_score > previous_state.enemy_score
+        in_zone = previous_state.ball_y < boundary       # top third == small y
+
+        reward = jnp.where(player_scored & in_zone, 1, 0) - jnp.where(enemy_scored, 1, 0)
+        return reward.astype(jnp.int32)
+
+
+class SparseScoringMod(JaxAtariInternalModPlugin):
+    """
+    Sparse (every-K) scoring: the normal +-1 score reward is only credited on
+    every _K-th point; all other points give 0. A reward-density knob (not a
+    magnitude knob), so it survives clipping and makes credit assignment harder
+    without changing the win condition. Higher _K = sparser feedback.
+
+    Counting is over total points (player + enemy), which increases by 1 per
+    goal, so exactly every K-th goal is credited.
+    """
+    _K = 3
+
+    @partial(jax.jit, static_argnums=(0,))
+    def _get_reward(self, previous_state: PongState, state: PongState):
+        base = JaxPong._get_reward(self._env, previous_state, state)
+        total_points = state.player_score + state.enemy_score
+        credited = (total_points % self._K) == 0
+        return jnp.where(credited, base, 0)
+
+
+class MissPenaltyMod(JaxAtariInternalModPlugin):
+    """
+    Miss penalty: +1 when the player scores, and -1 when the player *fails to
+    return* the ball (the ball passes the player's paddle plane still moving
+    toward the goal) -- instead of -1 when the opponent scores. This relocates
+    the negative signal from the opponent's success to the agent's own error,
+    firing a few frames earlier and tied directly to the missed paddle, which
+    shapes play toward defense.
+
+    A miss is detected as the ball crossing the paddle's right edge
+    (PLAYER_X + width) while moving right, which happens exactly once per missed
+    ball, several frames before the goal registers.
+    """
+    @partial(jax.jit, static_argnums=(0,))
+    def _get_reward(self, previous_state: PongState, state: PongState):
+        c = self._env.consts
+        paddle_plane = c.PLAYER_X + c.PLAYER_SIZE[0]     # right edge of player paddle
+
+        player_scored = state.player_score > previous_state.player_score
+        missed = (
+            (previous_state.ball_x <= paddle_plane)
+            & (state.ball_x > paddle_plane)
+            & (state.ball_vel_x > 0)                     # went past, was not returned
+        )
+        reward = jnp.where(player_scored, 1, 0) - jnp.where(missed, 1, 0)
+        return reward.astype(jnp.int32)
+
+
 def apply_render_noise(raster: jnp.ndarray, key: chex.PRNGKey, level: float) -> jnp.ndarray:
     """Blend uniform pixel noise into a rendered frame.
 
