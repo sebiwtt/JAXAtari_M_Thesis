@@ -59,7 +59,7 @@ def _init_random_agent_params(config: dict, key: jax.random.PRNGKey) -> AgentPar
     least one PPO iteration (RTPT requires max_iterations > 0).
     """
     env = make_env(
-        config["ENV_ID"], config["SEED"], 1, [], config["PIXEL_BASED"], config["NATIVE_DOWNSCALING"], config["SMOOTH_IMAGE"]
+        config["ENV_ID"], config["SEED"], 1, [], config["PIXEL_BASED"], config["NATIVE_DOWNSCALING"], config["SMOOTH_IMAGE"], config["GRAYSCALE"]
     )()
     network = Network() if config["PIXEL_BASED"] else MLP_Network()
     actor = Actor(action_dim=env.action_space().n)
@@ -130,6 +130,7 @@ def run_continual(config: dict) -> None:
                 pixel_based=config["PIXEL_BASED"],
                 native_downscaling=config["NATIVE_DOWNSCALING"],
                 smooth_image=config["SMOOTH_IMAGE"],
+                grayscale=config["GRAYSCALE"],
                 eval=True,
             ),
             env_id=config["ENV_ID"],

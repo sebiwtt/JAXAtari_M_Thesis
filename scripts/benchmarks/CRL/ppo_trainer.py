@@ -38,7 +38,7 @@ from rtpt import RTPT
 # Returns a thunk (zero-arg closure) building one fully wrapped env, later vmapped
 # over NUM_ENVS.
 
-def make_env(env_id, seed, num_envs, mods=[], pixel_based=True, native_downscaling=True, smooth_image=True, eval=False):
+def make_env(env_id, seed, num_envs, mods=[], pixel_based=True, native_downscaling=True, smooth_image=True, grayscale=False, eval=False):
     def thunk():
         active_mods = mods
         if not eval and isinstance(active_mods, (list, tuple)) and len(active_mods) > 1:
@@ -66,7 +66,7 @@ def make_env(env_id, seed, num_envs, mods=[], pixel_based=True, native_downscali
                 env,
                 do_pixel_resize=True,
                 pixel_resize_shape=(84, 84),
-                grayscale=False,
+                grayscale=grayscale,
                 use_native_downscaling=native_downscaling,
                 smooth_image=smooth_image,
                 frame_stack_size=4,
@@ -251,7 +251,7 @@ def train(
 
     # Unvmapped env instance purely to read out shapes/spaces; the rollout below
     # vmaps reset/step to run NUM_ENVS copies in lockstep.
-    env = make_env(config["ENV_ID"], config["SEED"], config["NUM_ENVS"], list(config["TRAIN_MODS"]), config["PIXEL_BASED"], config["NATIVE_DOWNSCALING"], config["SMOOTH_IMAGE"])()
+    env = make_env(config["ENV_ID"], config["SEED"], config["NUM_ENVS"], list(config["TRAIN_MODS"]), config["PIXEL_BASED"], config["NATIVE_DOWNSCALING"], config["SMOOTH_IMAGE"], config["GRAYSCALE"])()
 
     @jax.jit
     def vmap_reset(key):

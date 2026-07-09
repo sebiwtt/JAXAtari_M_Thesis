@@ -66,6 +66,7 @@ def _generate_single_final_video(
         config["PIXEL_BASED"],
         config["NATIVE_DOWNSCALING"],
         config["SMOOTH_IMAGE"],
+        config["GRAYSCALE"],
         eval=True,
     )()
 
