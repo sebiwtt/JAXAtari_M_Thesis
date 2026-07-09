@@ -13,6 +13,7 @@ NAN_UNTIL_FIRST_EPISODE: True
 PIXEL_BASED: True            # False = object-centric MLP_Network; True = pixel-CNN Network
 NATIVE_DOWNSCALING: True      # pixel-only: native low-res render instead of resizing full-res
 SMOOTH_IMAGE: False           # pixel-only: anti-alias when downscaling
+GRAYSCALE: False              # pixel-only: True = grayscale observations; False = full RGB
 
 ENV_ID: pong
 

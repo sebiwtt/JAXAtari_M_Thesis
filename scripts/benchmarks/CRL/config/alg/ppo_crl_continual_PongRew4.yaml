@@ -12,6 +12,7 @@ NAN_UNTIL_FIRST_EPISODE: True
 PIXEL_BASED: True            # False = object-centric MLP_Network; True = pixel-CNN Network
 NATIVE_DOWNSCALING: True      # pixel-only: native low-res render instead of resizing full-res
 SMOOTH_IMAGE: False           # pixel-only: anti-alias when downscaling
+GRAYSCALE: False              # pixel-only: True = grayscale observations; False = full RGB
 
 ENV_ID: pong
 
@@ -20,10 +21,10 @@ ENV_ID: pong
 TASK_MODS:
   - []
   - ["reward_per_hit"]
-  - ["time_penalty"]
+  - ["sparse_scoring"]
   - ["asymmetric_reward"]
-  - ["inverted_reward"]
-  
+  - ["zone_scoring"]
+
 # Retention-matrix eval (fills R[i,j] for j <= i after each task). EVAL_SEED is fixed
 # across every cell so differences reflect params, not eval noise.
 EVAL_EPISODES: 15           # parallel eval episodes per matrix cell

@@ -46,7 +46,7 @@ class PongEnvMod(JaxAtariModController):
         "inverted_reward": InvertedRewardMod,
         "zone_scoring": ZoneScoringMod,
         "sparse_scoring": SparseScoringMod,
-        "miss_penalty": MissPenaltyMod,
+        "miss_penalty": MissPenaltyMod, # tbh basically the same as normal as missing means the enemy scores :D
 
         # Visual-Mag (scaled render noise)
         "render_noise_20": RenderNoise20Mod,

@@ -1,8 +1,7 @@
-EXP_NAME: ppo_crl_continual_PongVisMagHardEasy4  # used to build run_name and checkpoint paths
+EXP_NAME: ppo_crl_continual_PongVis4  # used to build run_name and checkpoint paths
 TRACK: True                   # master wandb switch; also gates CAPTURE_VIDEO
 CAPTURE_VIDEO: False           # upload one final-rollout clip per task to wandb
-SAVE_OBS_FRAMES: True         # dump one PNG per task to obs_frames/ of the real post-wrapper rollout obs (debug only)
-
+SAVE_OBS_FRAMES: False         # dump one PNG per task to obs_frames/ of the real post-wrapper rollout obs (debug only)
 
 # Avoids a fake 0 floor in charts-{task}/avg_episodic_return right after each task's
 # env reset, before any episode has completed (NaN shows as a gap instead).
@@ -21,10 +20,10 @@ ENV_ID: pong
 # src/jaxatari/games/mods/pong_mods.py (PongEnvMod.REGISTRY). At most one mod per task.
 TASK_MODS:
   - []
-  - ["render_noise_80"]
-  - ["render_noise_60"]
-  - ["render_noise_40"]
-  - ["render_noise_20"]
+  - ["change_ball_color"]
+  - ["change_score_color"]
+  - ["swap_paddle_colors"]
+  - ["change_background_color"]
   
 # Retention-matrix eval (fills R[i,j] for j <= i after each task). EVAL_SEED is fixed
 # across every cell so differences reflect params, not eval noise.
