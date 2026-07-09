@@ -2,7 +2,7 @@ import os
 from functools import partial
 import jax
 from jaxatari.modification import JaxAtariModController
-from jaxatari.games.mods.pong.pong_mod_plugins import LazyEnemyMod, RandomEnemyMod, AlwaysZeroScoreMod, LinearMovementMod, ShiftPlayerMod, ShiftEnemyMod, NoFireMod, ChangeBackgroundColorMod, ChangePlayerColorMod, SwapPaddleColorsMod, ChangeBallColorMod, ChangeScoreColorMod, GrayscaleThemeMod, FastBallMod, SlowBallMod, FastPaddleMod, SlowPaddleMod, RandomServeMod, BallGravityMod, BallDriftMod, ScaleRewardMod, RewardPerHitMod, TimePenaltyMod, AsymmetricRewardMod, InvertedRewardMod, _RenderNoiseMod, RenderNoise10Mod, RenderNoise20Mod, RenderNoise30Mod, RenderNoise40Mod, apply_render_noise, BallSpeedX2Mod, BallSpeedX3Mod, BallSpeedX4Mod, BallSpeedX5Mod
+from jaxatari.games.mods.pong.pong_mod_plugins import LazyEnemyMod, RandomEnemyMod, AlwaysZeroScoreMod, LinearMovementMod, ShiftPlayerMod, ShiftEnemyMod, NoFireMod, ChangeBackgroundColorMod, ChangePlayerColorMod, SwapPaddleColorsMod, ChangeBallColorMod, ChangeScoreColorMod, GrayscaleThemeMod, FastBallMod, SlowBallMod, FastPaddleMod, SlowPaddleMod, RandomServeMod, BallGravityMod, BallDriftMod, ScaleRewardMod, RewardPerHitMod, TimePenaltyMod, AsymmetricRewardMod, InvertedRewardMod, _RenderNoiseMod, RenderNoise20Mod, RenderNoise40Mod, RenderNoise60Mod, RenderNoise80Mod, apply_render_noise, BallSpeedX2Mod, BallSpeedX3Mod, BallSpeedX4Mod, BallSpeedX5Mod
 
 class PongEnvMod(JaxAtariModController):    
     """
@@ -41,10 +41,10 @@ class PongEnvMod(JaxAtariModController):
         "asymmetric_reward": AsymmetricRewardMod,
         "inverted_reward": InvertedRewardMod,
         # Visual-Mag (scaled render noise)
-        "render_noise_10": RenderNoise10Mod,
         "render_noise_20": RenderNoise20Mod,
-        "render_noise_30": RenderNoise30Mod,
         "render_noise_40": RenderNoise40Mod,
+        "render_noise_60": RenderNoise60Mod,
+        "render_noise_80": RenderNoise80Mod,
         # Dynamics-Mag (scaled ball speed)
         "ball_speed_x2": BallSpeedX2Mod,
         "ball_speed_x3": BallSpeedX3Mod,

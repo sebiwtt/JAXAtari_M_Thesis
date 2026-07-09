@@ -1,3 +1,4 @@
 outputs/
 runs/
 wandb/
+obs_frames/

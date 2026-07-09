@@ -1,13 +1,41 @@
 """Final-video capture and wandb logging, kept out of ppo_trainer.py since it's
 observability, not part of the PPO algorithm itself."""
+from pathlib import Path
 from typing import Callable
 
 import jax
 import jax.numpy as jnp
 import numpy as np
 import wandb
+from PIL import Image
 
 import jaxatari
+
+
+def save_obs_debug_frame(config: dict, obs, label: str, out_dir: str = "obs_frames"):
+    """Dumps env 0's most recent stacked frame (post-PixelObsWrapper - exactly what the
+    CNN receives) to a PNG, so a human can eyeball what a task's mod actually looks like
+    once it reaches the agent during a real benchmark run.
+
+    No-op unless config["SAVE_OBS_FRAMES"] is truthy; object-centric runs have no image
+    to dump.
+    """
+    if not config.get("SAVE_OBS_FRAMES", False) or not config["PIXEL_BASED"]:
+        return
+
+    frame = np.clip(np.array(obs[0, -1]), 0, 255).astype(np.uint8)
+    if frame.ndim == 3 and frame.shape[-1] == 1:
+        frame = frame[..., 0]  # grayscale: drop the size-1 channel dim for PIL
+
+    image = Image.fromarray(frame)
+    upscale = 4  # purely for easier viewing; the real observation is tiny (e.g. 84x84)
+    image = image.resize((image.width * upscale, image.height * upscale), Image.NEAREST)
+
+    out_path = Path(out_dir)
+    out_path.mkdir(parents=True, exist_ok=True)
+    path = out_path / f"{label}.png"
+    image.save(path)
+    print(f"[debug] saved obs frame -> {path}")
 
 
 def _generate_single_final_video(

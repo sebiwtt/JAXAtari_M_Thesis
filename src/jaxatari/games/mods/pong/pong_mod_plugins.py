@@ -589,21 +589,21 @@ class _RenderNoiseMod(JaxAtariInternalModPlugin):
     _NOISE_LEVEL: float = 0.0
 
 
-class RenderNoise10Mod(_RenderNoiseMod):
-    """20% render noise (80% image, 20% uniform static)."""
-    _NOISE_LEVEL = 0.1
-
-
 class RenderNoise20Mod(_RenderNoiseMod):
-    """40% render noise."""
+    """20% render noise (80% image, 20% uniform static)."""
     _NOISE_LEVEL = 0.2
 
 
-class RenderNoise30Mod(_RenderNoiseMod):
-    """60% render noise."""
-    _NOISE_LEVEL = 0.3
-
-
 class RenderNoise40Mod(_RenderNoiseMod):
-    """80% render noise (image barely visible under static)."""
+    """40% render noise."""
     _NOISE_LEVEL = 0.4
+
+
+class RenderNoise60Mod(_RenderNoiseMod):
+    """60% render noise."""
+    _NOISE_LEVEL = 0.6
+
+
+class RenderNoise80Mod(_RenderNoiseMod):
+    """80% render noise (image barely visible under static)."""
+    _NOISE_LEVEL = 0.8

@@ -28,7 +28,7 @@ from flax.training.train_state import TrainState
 import jaxatari
 from jaxatari.wrappers import NormalizeObservationWrapper, ObjectCentricWrapper, PixelObsWrapper, AtariWrapper, LogWrapper, FlattenObservationWrapper
 from jaxatari import spaces
-from video_utils import generate_final_video
+from video_utils import generate_final_video, save_obs_debug_frame
 
 from rtpt import RTPT
 
@@ -66,7 +66,7 @@ def make_env(env_id, seed, num_envs, mods=[], pixel_based=True, native_downscali
                 env,
                 do_pixel_resize=True,
                 pixel_resize_shape=(84, 84),
-                grayscale=True,
+                grayscale=False,
                 use_native_downscaling=native_downscaling,
                 smooth_image=smooth_image,
                 frame_stack_size=4,
@@ -103,7 +103,12 @@ class Network(nn.Module):
     """Pixel torso: Nature-CNN feature extractor."""
     @nn.compact
     def __call__(self, x):
-        x = jnp.transpose(x, (0, 2, 3, 1))  # (B, F, H, W) -> (B, H, W, F) for conv
+        if x.ndim == 5:
+            # (B, F, H, W, C) -> (B, H, W, F*C): each stacked frame's channels become conv input channels.
+            b, f, h, w, c = x.shape
+            x = jnp.transpose(x, (0, 2, 3, 1, 4)).reshape(b, h, w, f * c)
+        else:
+            x = jnp.transpose(x, (0, 2, 3, 1))  # (B, F, H, W) -> (B, H, W, F) for conv
         x = x / (255.0)
         x = nn.Conv(
             32,
@@ -250,7 +255,7 @@ def train(
 
     @jax.jit
     def vmap_reset(key):
-        # squeeze drops the trailing channel dim, giving (B, F, H, W).
+        # squeeze drops the trailing channel dim for grayscale, giving (B, F, H, W); RGB keeps (B, F, H, W, C).
         obs, state = jax.vmap(env.reset)(key)
         return obs.squeeze(), state
 
@@ -494,6 +499,11 @@ def train(
         agent_state, next_obs, next_done, storage, key, env_state, info = rollout(
             agent_state, next_obs, next_done, key, env_state
         )
+        if iteration == 1:
+            # Snapshot of the real rollout obs (post-PixelObsWrapper, after NUM_STEPS of
+            # actual env stepping - not a blank reset screen) for this task/mod combo.
+            # storage.obs is (NUM_STEPS, NUM_ENVS, F, H, W[, C]); take the last timestep.
+            save_obs_debug_frame(config, storage.obs[-1], run_name)
         global_step += config["NUM_STEPS"] * config["NUM_ENVS"]
         storage = compute_gae(agent_state, next_obs, next_done, storage)
         agent_state, loss, pg_loss, v_loss, entropy_loss, approx_kl, key = update_ppo(
