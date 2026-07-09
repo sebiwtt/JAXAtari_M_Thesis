@@ -239,10 +239,14 @@ def run_continual(config: dict) -> None:
         Retention=Retention,
         task_mods=np.array([json.dumps(m) for m in task_mods_list]),
         labels=np.array(labels),
+        env_id=np.array(config["ENV_ID"]),
+        exp_name=np.array(config["EXP_NAME"]),
     )
     with open(f"{run_dir}/matrix.json", "w") as f:
         json.dump(
             {
+                "env_id": config["ENV_ID"],
+                "exp_name": config["EXP_NAME"],
                 "task_mods": task_mods_list,
                 "labels": labels,
                 "R": R.tolist(),
