@@ -14,7 +14,7 @@
 import random
 import time
 from functools import partial
-from typing import Sequence, NamedTuple
+from typing import Callable, Sequence, NamedTuple
 
 import flax
 import flax.linen as nn
@@ -210,6 +210,7 @@ def train(
     manage_wandb: bool = True,
     wandb_step_offset: int = 0,
     wandb_group: str | None = None,
+    iteration_callback: "Callable[[int, int, AgentParams], bool] | None" = None,
 ) -> "AgentParams":
     """Run one single-task PPO training job and return the final agent params.
 
@@ -219,6 +220,12 @@ def train(
     `run_name`/`manage_wandb`/`wandb_step_offset`/`wandb_group` let a caller
     (e.g. the continual orchestrator) run this repeatedly against one shared
     wandb run without checkpoint-path or metric collisions between tasks.
+
+    `iteration_callback(iteration, global_step, params)`, if given, is called
+    after every PPO update; returning True stops training early (used by the
+    difficulty harness to probe eval performance mid-adaptation and cut off the
+    moment a target return is reached). The most recent params are always the
+    ones returned, so an early stop still returns the crossing-point agent.
     """
     # Hydra nests the alg sub-config under "alg"; flatten to one UPPER_CASE dict.
     config = {k.upper(): v for k, v in config.items() if k != "alg"}
@@ -546,6 +553,10 @@ def train(
         }
         if config["TRACK"]:
             wandb.log(metrics, step=wandb_step_offset + iteration)
+
+        if iteration_callback is not None and iteration_callback(iteration, global_step, agent_state.params):
+            print(f"[train] early-stop signalled by callback at iteration {iteration} (global_step={global_step}).")
+            break
 
     end_time = time.time()
     print("Training done.")
