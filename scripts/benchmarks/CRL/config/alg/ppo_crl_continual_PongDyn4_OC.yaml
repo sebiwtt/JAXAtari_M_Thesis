@@ -1,11 +1,7 @@
-# -----------------------------------------------
-# This File is the stencil for all other configs
-# -----------------------------------------------
-
-EXP_NAME: ppo_crl_continual   # used to build run_name and checkpoint paths
+EXP_NAME: ppo_crl_continual_PongDyn4  # used to build run_name and checkpoint paths
 TRACK: True                   # master wandb switch; also gates CAPTURE_VIDEO
 CAPTURE_VIDEO: False           # upload one final-rollout clip per task to wandb
-SAVE_OBS_FRAMES: True         # dump one PNG per task to obs_frames/ of the real post-wrapper rollout obs (debug only)
+SAVE_OBS_FRAMES: False         # dump one PNG per task to obs_frames/ of the real post-wrapper rollout obs (debug only)
 
 # Avoids a fake 0 floor in charts-{task}/avg_episodic_return right after each task's
 # env reset, before any episode has completed (NaN shows as a gap instead).
@@ -13,7 +9,7 @@ NAN_UNTIL_FIRST_EPISODE: True
 
 # PIXEL_BASED picks the network/observation pipeline; the two downscaling flags only
 # take effect when PIXEL_BASED is True.
-PIXEL_BASED: True            # False = object-centric MLP_Network; True = pixel-CNN Network
+PIXEL_BASED: False            # False = object-centric MLP_Network; True = pixel-CNN Network
 NATIVE_DOWNSCALING: True      # pixel-only: native low-res render instead of resizing full-res
 SMOOTH_IMAGE: False           # pixel-only: anti-alias when downscaling
 GRAYSCALE: False              # pixel-only: True = grayscale observations; False = full RGB
@@ -24,11 +20,13 @@ ENV_ID: pong
 # src/jaxatari/games/mods/pong_mods.py (PongEnvMod.REGISTRY). At most one mod per task.
 TASK_MODS:
   - []
-  - ["change_ball_color"]
-  - ["change_score_color"]
-  - ["swap_paddle_colors"]
-  - ["change_background_color"]
+  - ["fast_ball"]
+  - ["fast_paddle"]
+  - ["random_serve"]
+  - ["ball_gravity"]
+  
 
+  
 # Retention-matrix eval (fills R[i,j] for j <= i after each task). EVAL_SEED is fixed
 # across every cell so differences reflect params, not eval noise.
 EVAL_EPISODES: 15           # parallel eval episodes per matrix cell
@@ -39,9 +37,9 @@ EVAL_SEED: 1
 EVAL_FULL_MATRIX: False
 
 # Identical budget for every task, so no task gets an unfair training-time advantage.
-TOTAL_TIMESTEPS: 10000000 #0
+TOTAL_TIMESTEPS: 100000000
 
-NUM_ENVS: 512                # parallel env instances (vmapped), the dominant memory cost
+NUM_ENVS: 8192                # parallel env instances (vmapped), the dominant memory cost
 NUM_STEPS: 128                # rollout length per PPO iteration, per env
 
 # Standard PPO hyperparameters - shouldn't normally need changing per task/mod.
@@ -49,7 +47,7 @@ LEARNING_RATE: 0.00025
 ANNEAL_LR: True                # linear decay to 0 over NUM_ITERATIONS, reset fresh each task
 GAMMA: 0.99                    # discount factor
 GAE_LAMBDA: 0.95                # GAE bias/variance trade-off
-NUM_MINIBATCHES: 256           # BATCH_SIZE (NUM_ENVS * NUM_STEPS) split into this many minibatches
+NUM_MINIBATCHES: 4096           # BATCH_SIZE (NUM_ENVS * NUM_STEPS) split into this many minibatches
 UPDATE_EPOCHS: 2                # gradient passes over the same rollout batch per iteration
 NORM_ADV: True                  # normalize advantages within each minibatch
 CLIP_COEF: 0.1                  # PPO policy-ratio clip range
