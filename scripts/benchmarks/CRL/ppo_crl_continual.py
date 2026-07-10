@@ -1,8 +1,14 @@
 # =============================================================================
-# Naive-finetuning continual-RL evaluation harness for the JAXtari PPO trainer
+# Continual-RL evaluation harness for the JAXtari PPO trainer
 # =============================================================================
 # Trains ONE agent sequentially over ordered single-mod Pong tasks, carrying params
-# forward (naive finetuning). After each task, evaluates on every task seen so far:
+# forward. CL_METHOD selects the continual-learning method:
+#   "ft"  (default) - naive finetuning, no forgetting mitigation
+#   "ewc"           - Elastic Weight Consolidation (Kirkpatrick et al. 2017): after each
+#                     task a diagonal Fisher is estimated and folded into an EWCState
+#                     (EWC_MODE last/multi/online); subsequent tasks add the quadratic
+#                     penalty 0.5*EWC_COEF*mean_i F_i (theta_i - theta*_i)^2 to the PPO loss.
+# After each task, evaluates on every task seen so far:
 #
 #   R[i, j]         = return of the agent trained through task i, evaluated on task j  (j <= i)
 #   R_rand[j]       = return of a fresh/untrained agent on task j - the "knows nothing" floor,
@@ -27,7 +33,7 @@ import wandb
 from omegaconf import OmegaConf
 
 from ppo_eval import evaluate
-from ppo_trainer import AgentParams, Actor, Critic, MLP_Network, Network, make_env, train
+from ppo_trainer import AgentParams, Actor, Critic, MLP_Network, Network, ewc_update_state, make_env, train
 
 
 def _task_label(mods) -> str:
@@ -77,6 +83,11 @@ def _init_random_agent_params(config: dict, key: jax.random.PRNGKey) -> AgentPar
 
 def run_continual(config: dict) -> None:
     config = {k.upper(): v for k, v in config.items() if k != "alg"}
+
+    cl_method = str(config.get("CL_METHOD", "ft")).lower()
+    assert cl_method in ("ft", "ewc"), f"unknown CL_METHOD {cl_method!r} (supported: 'ft', 'ewc')"
+    if cl_method == "ewc":
+        assert float(config.get("EWC_COEF", 0.0)) > 0.0, "CL_METHOD=ewc requires EWC_COEF > 0"
 
     task_mods_list = [list(m) for m in config["TASK_MODS"]]
     assert len(task_mods_list) > 0, "TASK_MODS must contain at least one task"
@@ -152,6 +163,7 @@ def run_continual(config: dict) -> None:
     R = np.full((num_tasks, num_tasks), np.nan)
     ckpt_paths: list[str] = []
     carried_params = None
+    ewc_state = None
 
     for i in range(num_tasks):
         task_mods = task_mods_list[i]
@@ -159,15 +171,31 @@ def run_continual(config: dict) -> None:
         task_config["TRAIN_MODS"] = tuple(task_mods)
 
         task_run_name = f"{base_run_name}_task{i}"
-        print(f"\n=== CRL task {i}/{num_tasks - 1}: mods={task_mods} (label={labels[i]!r}) ===")
-        carried_params = train(
+        print(f"\n=== CRL task {i}/{num_tasks - 1}: mods={task_mods} (label={labels[i]!r}, cl_method={cl_method}) ===")
+        # The Fisher of the last task would never be used as a penalty, so skip it.
+        want_fisher = cl_method == "ewc" and i < num_tasks - 1
+        result = train(
             task_config,
             init_params=carried_params,
             run_name=task_run_name,
             manage_wandb=False,
             wandb_step_offset=i * num_iterations,
             wandb_group=labels[i],
+            ewc_state=ewc_state,
+            return_fisher=want_fisher,
         )
+        if want_fisher:
+            carried_params, new_fisher = result
+            ewc_state = ewc_update_state(
+                ewc_state,
+                carried_params,
+                new_fisher,
+                mode=config.get("EWC_MODE", "online"),
+                decay=config.get("EWC_DECAY", 0.9),
+            )
+            print(f'[CRL] EWC state updated after task {i} (mode={config.get("EWC_MODE", "online")})')
+        else:
+            carried_params = result
 
         # Same serialization format as evaluate() expects, so it can load this unmodified.
         ckpt_path = f"{run_dir}/task_{i}.cleanrl_model"

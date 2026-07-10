@@ -4,7 +4,10 @@
 # Adapted from CleanRL's ppo_atari_envpool_xla_jax_scan.py
 #
 # CL baseline injection points:
-#   EWC     -> penalty term inside `ppo_loss`
+#   EWC     -> IMPLEMENTED: quadratic penalty inside `ppo_loss` anchored to an
+#              `EWCState` (previous params + diagonal Fisher); Fisher estimated
+#              post-task from a fresh on-policy rollout (`return_fisher=True`).
+#              Ported from MEAL (github.com/TTomilin/MEAL) to single-agent PPO.
 #   A-GEM   -> project `grads` in `update_minibatch` before `apply_gradients`
 #   PackNet -> mask/prune over `AgentParams`; note single-head Actor (constant
 #              action dim across mods) vs. PackNet's usual multi-head setup
@@ -200,6 +203,51 @@ class Storage:
     rewards: jnp.array
 
 # =============================================================================
+# EWC - Elastic Weight Consolidation (Kirkpatrick et al. 2017)
+# =============================================================================
+# Diagonal-Fisher EWC, ported from MEAL's IPPO implementation to this
+# single-agent PPO. F = E_{s, a~pi}[(d/dtheta log pi(a|s))^2] is estimated from
+# on-policy samples of the finished task's final policy. The critic head gets
+# zero Fisher (log pi does not depend on it), so only torso + actor are
+# anchored; the value function stays free to re-adapt on each new task.
+
+@flax.struct.dataclass
+class EWCState:
+    """Anchor params theta* and diagonal Fisher F accumulated over finished tasks."""
+    old_params: AgentParams
+    fisher: AgentParams
+
+
+def ewc_update_state(
+    ewc_state: "EWCState | None",
+    new_params: AgentParams,
+    new_fisher: AgentParams,
+    mode: str = "online",
+    decay: float = 0.9,
+) -> EWCState:
+    """Merge a freshly estimated Fisher into the running EWC state after finishing a task.
+
+    Modes (as in MEAL):
+      "last"   - keep only the newest task's Fisher
+      "multi"  - sum of all tasks' Fishers (standard EWC, with a shared latest anchor)
+      "online" - exponential moving average: decay * F_old + (1 - decay) * F_new
+
+    The anchor is always the newest params (older anchors are dropped, as in MEAL).
+    After the first task (ewc_state is None) the new Fisher is used as-is in every
+    mode, rather than decaying it against an all-zero history.
+    """
+    assert mode in ("last", "multi", "online"), f"unknown EWC mode {mode!r}"
+    if ewc_state is None or mode == "last":
+        fisher = new_fisher
+    elif mode == "multi":
+        fisher = jax.tree.map(jnp.add, ewc_state.fisher, new_fisher)
+    else:  # "online"
+        fisher = jax.tree.map(
+            lambda old, new: decay * old + (1.0 - decay) * new, ewc_state.fisher, new_fisher
+        )
+    return EWCState(old_params=new_params, fisher=fisher)
+
+# =============================================================================
 # MAIN ENTRY: one full training run for a single (env, modality, seed) config
 # =============================================================================
 
@@ -211,11 +259,23 @@ def train(
     wandb_step_offset: int = 0,
     wandb_group: str | None = None,
     iteration_callback: "Callable[[int, int, AgentParams], bool] | None" = None,
-) -> "AgentParams":
+    ewc_state: "EWCState | None" = None,
+    return_fisher: bool = False,
+) -> "AgentParams | tuple[AgentParams, AgentParams]":
     """Run one single-task PPO training job and return the final agent params.
 
     `init_params`, if given, resumes from prior params instead of a fresh init
     (naive finetuning across CRL tasks); the optimizer is always rebuilt fresh.
+
+    `ewc_state`, if given, adds the EWC quadratic penalty
+    0.5 * EWC_COEF * mean_i F_i (theta_i - theta*_i)^2 to `ppo_loss`. When None
+    (naive finetuning, or the first task of an EWC run) the penalty branch is
+    dropped at trace time, so the compiled update is identical to plain PPO.
+
+    `return_fisher=True` collects one extra on-policy rollout with the final
+    params after training and returns `(params, fisher)`, where `fisher` is the
+    diagonal Fisher estimate to fold into the next task's `ewc_state` via
+    `ewc_update_state`.
 
     `run_name`/`manage_wandb`/`wandb_step_offset`/`wandb_group` let a caller
     (e.g. the continual orchestrator) run this repeatedly against one shared
@@ -390,10 +450,17 @@ def train(
         )
         return storage
 
-    # >>> EWC HOOK: add (lambda/2) * sum_i F_i * (theta_i - theta*_i)^2 to `loss`
-    #     here, using a stored Fisher/anchor from the previous task.
-    def ppo_loss(params, x, a, logp, mb_advantages, mb_returns):
-        """Clipped PPO surrogate objective, plus value and entropy terms."""
+    # Dividing the EWC penalty by the param count (as MEAL does) makes EWC_COEF
+    # roughly comparable between the CNN and MLP torsos.
+    ewc_coef = float(config.get("EWC_COEF", 0.0))
+    n_agent_params = sum(x.size for x in jax.tree.leaves(params))
+
+    # EWC: (lambda/2) * mean_i F_i * (theta_i - theta*_i)^2, anchoring params to
+    # the previous tasks' solution proportionally to their Fisher importance.
+    # `ewc_state is None` is resolved at trace time, so the no-EWC compilation is
+    # byte-identical to plain PPO.
+    def ppo_loss(params, ewc_state, x, a, logp, mb_advantages, mb_returns):
+        """Clipped PPO surrogate objective, plus value/entropy terms and optional EWC penalty."""
         newlogprob, entropy, newvalue = get_action_and_value2(params, x, a)
         logratio = newlogprob - logp
         ratio = jnp.exp(logratio)
@@ -410,14 +477,25 @@ def train(
 
         entropy_loss = entropy.mean()
         loss = pg_loss - config["ENT_COEF"] * entropy_loss + v_loss * config["VF_COEF"]
-        return loss, (pg_loss, v_loss, entropy_loss, jax.lax.stop_gradient(approx_kl))
+        if ewc_state is not None:
+            sq = jax.tree.map(
+                lambda p, o, f: (f * (p - o) ** 2).sum(),
+                params, ewc_state.old_params, ewc_state.fisher,
+            )
+            ewc_penalty = 0.5 * ewc_coef * sum(jax.tree.leaves(sq)) / n_agent_params
+            loss = loss + ewc_penalty
+        else:
+            ewc_penalty = jnp.array(0.0)
+        return loss, (pg_loss, v_loss, entropy_loss, jax.lax.stop_gradient(approx_kl), ewc_penalty)
 
+    # Differentiates w.r.t. argnums=0 (params) only; ewc_state is a constant input.
     ppo_loss_grad_fn = jax.value_and_grad(ppo_loss, has_aux=True)
 
     @jax.jit
     def update_ppo(
         agent_state: TrainState,
         storage: Storage,
+        ewc_state: "EWCState | None",
         key: jax.random.PRNGKey,
     ):
         def update_epoch(carry, unused_inp):
@@ -438,8 +516,9 @@ def train(
             # >>> A-GEM HOOK: `grads` is available here before apply_gradients -
             #     project against a reference gradient if grads . g_ref < 0.
             def update_minibatch(agent_state, minibatch):
-                (loss, (pg_loss, v_loss, entropy_loss, approx_kl)), grads = ppo_loss_grad_fn(
+                (loss, (pg_loss, v_loss, entropy_loss, approx_kl, ewc_penalty)), grads = ppo_loss_grad_fn(
                     agent_state.params,
+                    ewc_state,
                     minibatch.obs,
                     minibatch.actions,
                     minibatch.logprobs,
@@ -447,17 +526,17 @@ def train(
                     minibatch.returns,
                 )
                 agent_state = agent_state.apply_gradients(grads=grads)
-                return agent_state, (loss, pg_loss, v_loss, entropy_loss, approx_kl, grads)
+                return agent_state, (loss, pg_loss, v_loss, entropy_loss, approx_kl, ewc_penalty, grads)
 
-            agent_state, (loss, pg_loss, v_loss, entropy_loss, approx_kl, grads) = jax.lax.scan(
+            agent_state, (loss, pg_loss, v_loss, entropy_loss, approx_kl, ewc_penalty, grads) = jax.lax.scan(
                 update_minibatch, agent_state, shuffled_storage
             )
-            return (agent_state, key), (loss, pg_loss, v_loss, entropy_loss, approx_kl, grads)
+            return (agent_state, key), (loss, pg_loss, v_loss, entropy_loss, approx_kl, ewc_penalty, grads)
 
-        (agent_state, key), (loss, pg_loss, v_loss, entropy_loss, approx_kl, grads) = jax.lax.scan(
+        (agent_state, key), (loss, pg_loss, v_loss, entropy_loss, approx_kl, ewc_penalty, grads) = jax.lax.scan(
             update_epoch, (agent_state, key), (), length=config["UPDATE_EPOCHS"]
         )
-        return agent_state, loss, pg_loss, v_loss, entropy_loss, approx_kl, key
+        return agent_state, loss, pg_loss, v_loss, entropy_loss, approx_kl, ewc_penalty, key
 
     # ========================================================================
     # ROLLOUT + TRAINING LOOP
@@ -493,6 +572,50 @@ def train(
 
     rollout = partial(rollout, step_once_fn=partial(step_once, env_step_fn=vmap_step), max_steps=config["NUM_STEPS"])
 
+    # EWC diagonal Fisher over on-policy (s, a) samples: F = mean[(grad log pi(a|s))^2].
+    # Per-sample grads are needed (mean of squares != square of mean), so samples are
+    # processed as a scan over chunks with a vmapped grad inside - peak extra memory is
+    # EWC_FISHER_CHUNK x n_params instead of samples x n_params, and the whole thing
+    # stays jitted/on-device. Critic params never enter log pi, so their Fisher is 0.
+    @jax.jit
+    def compute_fisher(params: AgentParams, storage: Storage, key: jax.random.PRNGKey) -> AgentParams:
+        chunk = int(config.get("EWC_FISHER_CHUNK", 128))
+        batch = int(config["NUM_STEPS"] * config["NUM_ENVS"])
+        num_samples = min(int(config.get("EWC_FISHER_SAMPLES", 65536)), batch)
+        num_samples = (num_samples // chunk) * chunk
+        assert num_samples > 0, "EWC_FISHER_SAMPLES and EWC_FISHER_CHUNK yield zero Fisher samples"
+
+        obs_flat = storage.obs.reshape((batch,) + storage.obs.shape[2:])
+        actions_flat = storage.actions.reshape(batch)
+        # Chunked index gather (instead of materializing obs_flat[idx] up front) keeps
+        # the pixel-obs case from allocating a second full observation batch.
+        idx = jax.random.permutation(key, batch)[:num_samples].reshape(-1, chunk)
+
+        def logp_single(p, ob, act):
+            hidden = network.apply(p.network_params, ob[None, ...])
+            logits = actor.apply(p.actor_params, hidden)
+            return jax.nn.log_softmax(logits)[0, act]
+
+        grad_single = jax.grad(logp_single)
+
+        def accumulate_chunk(acc, idx_c):
+            ob = jnp.take(obs_flat, idx_c, axis=0)
+            act = jnp.take(actions_flat, idx_c, axis=0)
+            g = jax.vmap(grad_single, in_axes=(None, 0, 0))(params, ob, act)
+            return jax.tree.map(lambda a, x: a + jnp.square(x).sum(0), acc, g), None
+
+        fisher0 = jax.tree.map(jnp.zeros_like, params)
+        fisher, _ = jax.lax.scan(accumulate_chunk, fisher0, idx)
+        fisher = jax.tree.map(lambda x: x / num_samples, fisher)
+
+        if config.get("EWC_NORMALIZE_FISHER", True):
+            # Rescale to mean(|F|) = 1 so EWC_COEF keeps the same meaning across
+            # tasks/architectures whose raw Fisher magnitudes differ by orders of magnitude.
+            leaves = jax.tree.leaves(fisher)
+            mean_abs = sum(jnp.abs(x).sum() for x in leaves) / sum(x.size for x in leaves)
+            fisher = jax.tree.map(lambda x: x / (mean_abs + 1e-12), fisher)
+        return fisher
+
     # RTPT reports estimated time-to-completion to the OS process title.
     rtpt = RTPT(name_initials=config.get("NAME_INITIALS", "RE"), experiment_name='PPO_CRL_Finetune', max_iterations=config["NUM_ITERATIONS"])
     rtpt.start()
@@ -513,9 +636,10 @@ def train(
             save_obs_debug_frame(config, storage.obs[-1], run_name)
         global_step += config["NUM_STEPS"] * config["NUM_ENVS"]
         storage = compute_gae(agent_state, next_obs, next_done, storage)
-        agent_state, loss, pg_loss, v_loss, entropy_loss, approx_kl, key = update_ppo(
+        agent_state, loss, pg_loss, v_loss, entropy_loss, approx_kl, ewc_penalty, key = update_ppo(
             agent_state,
             storage,
+            ewc_state,
             key,
         )
         if compile_time is None:
@@ -546,6 +670,7 @@ def train(
             f"{loss_section}/entropy": entropy_loss[-1, -1].item(),
             f"{loss_section}/approx_kl": approx_kl[-1, -1].item(),
             f"{loss_section}/loss": loss[-1, -1].item(),
+            **({f"{loss_section}/ewc_penalty": ewc_penalty[-1, -1].item()} if ewc_state is not None else {}),
             f"{chart_section}/SPS": int(global_step / (time.time() - start_time)),
             f"{chart_section}/SPS_update": int(config["NUM_ENVS"] * config["NUM_STEPS"] / (time.time() - iteration_time_start)),
             f"{chart_section}/time": time.time() - start_time,
@@ -568,5 +693,16 @@ def train(
 
     if config["TRACK"] and manage_wandb:
         wandb.finish()
+
+    if return_fisher:
+        # One extra rollout with the *final* params so Fisher samples (s, a) ~ pi_theta
+        # exactly; the last training rollout was collected by a slightly older policy.
+        fisher_start = time.time()
+        _, _, _, fisher_storage, key, _, _ = rollout(agent_state, next_obs, next_done, key, env_state)
+        key, fisher_key = jax.random.split(key)
+        fisher = compute_fisher(agent_state.params, fisher_storage, fisher_key)
+        fisher = jax.block_until_ready(fisher)
+        print(f"[EWC] Fisher estimation (rollout + grads) took {time.time() - fisher_start:.2f} seconds.")
+        return agent_state.params, fisher
 
     return agent_state.params
