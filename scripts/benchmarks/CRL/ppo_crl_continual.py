@@ -2,12 +2,16 @@
 # Continual-RL evaluation harness for the JAXtari PPO trainer
 # =============================================================================
 # Trains ONE agent sequentially over ordered single-mod Pong tasks, carrying params
-# forward. CL_METHOD selects the continual-learning method:
+# forward. CL_METHOD selects the continual-learning method (see crl_methods.py):
 #   "ft"  (default) - naive finetuning, no forgetting mitigation
 #   "ewc"           - Elastic Weight Consolidation (Kirkpatrick et al. 2017): after each
 #                     task a diagonal Fisher is estimated and folded into an EWCState
 #                     (EWC_MODE last/multi/online); subsequent tasks add the quadratic
 #                     penalty 0.5*EWC_COEF*mean_i F_i (theta_i - theta*_i)^2 to the PPO loss.
+#   "agem"          - Averaged Gradient Episodic Memory (Chaudhry et al. 2019): after each
+#                     task, AGEM_MEMORY_PER_TASK transitions from a final-policy rollout
+#                     are appended to an episodic memory; subsequent tasks project every
+#                     minibatch gradient that conflicts with the memory's BC gradient.
 # After each task, evaluates on every task seen so far:
 #
 #   R[i, j]         = return of the agent trained through task i, evaluated on task j  (j <= i)
@@ -32,8 +36,9 @@ import numpy as np
 import wandb
 from omegaconf import OmegaConf
 
+from crl_methods import agem_extend_memory, ewc_update_state
 from ppo_eval import evaluate
-from ppo_trainer import AgentParams, Actor, Critic, MLP_Network, Network, ewc_update_state, make_env, train
+from ppo_trainer import AgentParams, Actor, Critic, MLP_Network, Network, make_env, train
 
 
 def _task_label(mods) -> str:
@@ -85,7 +90,7 @@ def run_continual(config: dict) -> None:
     config = {k.upper(): v for k, v in config.items() if k != "alg"}
 
     cl_method = str(config.get("CL_METHOD", "ft")).lower()
-    assert cl_method in ("ft", "ewc"), f"unknown CL_METHOD {cl_method!r} (supported: 'ft', 'ewc')"
+    assert cl_method in ("ft", "ewc", "agem"), f"unknown CL_METHOD {cl_method!r} (supported: 'ft', 'ewc', 'agem')"
     if cl_method == "ewc":
         assert float(config.get("EWC_COEF", 0.0)) > 0.0, "CL_METHOD=ewc requires EWC_COEF > 0"
 
@@ -164,6 +169,7 @@ def run_continual(config: dict) -> None:
     ckpt_paths: list[str] = []
     carried_params = None
     ewc_state = None
+    agem_memory = None
 
     for i in range(num_tasks):
         task_mods = task_mods_list[i]
@@ -172,8 +178,10 @@ def run_continual(config: dict) -> None:
 
         task_run_name = f"{base_run_name}_task{i}"
         print(f"\n=== CRL task {i}/{num_tasks - 1}: mods={task_mods} (label={labels[i]!r}, cl_method={cl_method}) ===")
-        # The Fisher of the last task would never be used as a penalty, so skip it.
+        # Post-task CL state (Fisher / memory block) of the last task would never be
+        # consumed by a later task, so skip collecting it.
         want_fisher = cl_method == "ewc" and i < num_tasks - 1
+        want_agem_samples = cl_method == "agem" and i < num_tasks - 1
         result = train(
             task_config,
             init_params=carried_params,
@@ -183,6 +191,8 @@ def run_continual(config: dict) -> None:
             wandb_group=labels[i],
             ewc_state=ewc_state,
             return_fisher=want_fisher,
+            agem_memory=agem_memory,
+            return_agem_samples=want_agem_samples,
         )
         if want_fisher:
             carried_params, new_fisher = result
@@ -194,6 +204,10 @@ def run_continual(config: dict) -> None:
                 decay=config.get("EWC_DECAY", 0.9),
             )
             print(f'[CRL] EWC state updated after task {i} (mode={config.get("EWC_MODE", "online")})')
+        elif want_agem_samples:
+            carried_params, new_block = result
+            agem_memory = agem_extend_memory(agem_memory, new_block)
+            print(f"[CRL] A-GEM memory extended after task {i} (total {agem_memory.actions.shape[0]} transitions)")
         else:
             carried_params = result
 

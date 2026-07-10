@@ -3,12 +3,13 @@
 # PPO trainer for JAXtari (single-agent, on-policy, fully jitted)
 # Adapted from CleanRL's ppo_atari_envpool_xla_jax_scan.py
 #
-# CL baseline injection points:
-#   EWC     -> IMPLEMENTED: quadratic penalty inside `ppo_loss` anchored to an
-#              `EWCState` (previous params + diagonal Fisher); Fisher estimated
-#              post-task from a fresh on-policy rollout (`return_fisher=True`).
-#              Ported from MEAL (github.com/TTomilin/MEAL) to single-agent PPO.
-#   A-GEM   -> project `grads` in `update_minibatch` before `apply_gradients`
+# CL baselines live in `crl_methods.py`; the hooks here are intentionally thin:
+#   EWC     -> IMPLEMENTED: `ewc_penalty` inside `ppo_loss` anchored to an
+#              `EWCState`; Fisher estimated post-task from a fresh on-policy
+#              rollout (`return_fisher=True`).
+#   A-GEM   -> IMPLEMENTED: `agem_project` on `grads` in `update_minibatch`
+#              against a BC gradient on `AGEMMemory`; memory blocks sampled
+#              post-task from a fresh on-policy rollout (`return_agem_samples=True`).
 #   PackNet -> mask/prune over `AgentParams`; note single-head Actor (constant
 #              action dim across mods) vs. PackNet's usual multi-head setup
 # =============================================================================
@@ -31,6 +32,15 @@ from flax.training.train_state import TrainState
 import jaxatari
 from jaxatari.wrappers import NormalizeObservationWrapper, ObjectCentricWrapper, PixelObsWrapper, AtariWrapper, LogWrapper, FlattenObservationWrapper
 from jaxatari import spaces
+from crl_methods import (
+    AGEMMemory,
+    EWCState,
+    agem_project,
+    agem_sample_block,
+    ewc_penalty,
+    make_agem_grad_fn,
+    make_fisher_fn,
+)
 from video_utils import generate_final_video, save_obs_debug_frame
 
 from rtpt import RTPT
@@ -203,51 +213,6 @@ class Storage:
     rewards: jnp.array
 
 # =============================================================================
-# EWC - Elastic Weight Consolidation (Kirkpatrick et al. 2017)
-# =============================================================================
-# Diagonal-Fisher EWC, ported from MEAL's IPPO implementation to this
-# single-agent PPO. F = E_{s, a~pi}[(d/dtheta log pi(a|s))^2] is estimated from
-# on-policy samples of the finished task's final policy. The critic head gets
-# zero Fisher (log pi does not depend on it), so only torso + actor are
-# anchored; the value function stays free to re-adapt on each new task.
-
-@flax.struct.dataclass
-class EWCState:
-    """Anchor params theta* and diagonal Fisher F accumulated over finished tasks."""
-    old_params: AgentParams
-    fisher: AgentParams
-
-
-def ewc_update_state(
-    ewc_state: "EWCState | None",
-    new_params: AgentParams,
-    new_fisher: AgentParams,
-    mode: str = "online",
-    decay: float = 0.9,
-) -> EWCState:
-    """Merge a freshly estimated Fisher into the running EWC state after finishing a task.
-
-    Modes (as in MEAL):
-      "last"   - keep only the newest task's Fisher
-      "multi"  - sum of all tasks' Fishers (standard EWC, with a shared latest anchor)
-      "online" - exponential moving average: decay * F_old + (1 - decay) * F_new
-
-    The anchor is always the newest params (older anchors are dropped, as in MEAL).
-    After the first task (ewc_state is None) the new Fisher is used as-is in every
-    mode, rather than decaying it against an all-zero history.
-    """
-    assert mode in ("last", "multi", "online"), f"unknown EWC mode {mode!r}"
-    if ewc_state is None or mode == "last":
-        fisher = new_fisher
-    elif mode == "multi":
-        fisher = jax.tree.map(jnp.add, ewc_state.fisher, new_fisher)
-    else:  # "online"
-        fisher = jax.tree.map(
-            lambda old, new: decay * old + (1.0 - decay) * new, ewc_state.fisher, new_fisher
-        )
-    return EWCState(old_params=new_params, fisher=fisher)
-
-# =============================================================================
 # MAIN ENTRY: one full training run for a single (env, modality, seed) config
 # =============================================================================
 
@@ -261,21 +226,28 @@ def train(
     iteration_callback: "Callable[[int, int, AgentParams], bool] | None" = None,
     ewc_state: "EWCState | None" = None,
     return_fisher: bool = False,
-) -> "AgentParams | tuple[AgentParams, AgentParams]":
+    agem_memory: "AGEMMemory | None" = None,
+    return_agem_samples: bool = False,
+) -> "AgentParams | tuple[AgentParams, AgentParams] | tuple[AgentParams, AGEMMemory]":
     """Run one single-task PPO training job and return the final agent params.
 
     `init_params`, if given, resumes from prior params instead of a fresh init
     (naive finetuning across CRL tasks); the optimizer is always rebuilt fresh.
 
-    `ewc_state`, if given, adds the EWC quadratic penalty
-    0.5 * EWC_COEF * mean_i F_i (theta_i - theta*_i)^2 to `ppo_loss`. When None
-    (naive finetuning, or the first task of an EWC run) the penalty branch is
-    dropped at trace time, so the compiled update is identical to plain PPO.
+    CL hooks (see `crl_methods.py`; both are trace-time branches, so with all of
+    them off the compiled update is identical to plain PPO):
 
-    `return_fisher=True` collects one extra on-policy rollout with the final
-    params after training and returns `(params, fisher)`, where `fisher` is the
-    diagonal Fisher estimate to fold into the next task's `ewc_state` via
-    `ewc_update_state`.
+    `ewc_state`, if given, adds the EWC quadratic penalty
+    0.5 * EWC_COEF * mean_i F_i (theta_i - theta*_i)^2 to `ppo_loss`.
+
+    `agem_memory`, if given, projects each minibatch's PPO gradient so it cannot
+    conflict with the behavioral-cloning gradient on a batch sampled from the
+    past-task memory (A-GEM).
+
+    `return_fisher=True` / `return_agem_samples=True` (mutually exclusive)
+    collect one extra on-policy rollout with the final params after training and
+    return `(params, fisher)` resp. `(params, memory_block)` - the per-task
+    ingredients for `ewc_update_state` / `agem_extend_memory`.
 
     `run_name`/`manage_wandb`/`wandb_step_offset`/`wandb_group` let a caller
     (e.g. the continual orchestrator) run this repeatedly against one shared
@@ -289,6 +261,9 @@ def train(
     """
     # Hydra nests the alg sub-config under "alg"; flatten to one UPPER_CASE dict.
     config = {k.upper(): v for k, v in config.items() if k != "alg"}
+
+    assert not (ewc_state is not None and agem_memory is not None), "EWC and A-GEM are mutually exclusive"
+    assert not (return_fisher and return_agem_samples), "return_fisher and return_agem_samples are mutually exclusive"
 
     if isinstance(config.get("TRAIN_MODS"), list):
         config["TRAIN_MODS"] = tuple(config["TRAIN_MODS"])
@@ -450,10 +425,10 @@ def train(
         )
         return storage
 
-    # Dividing the EWC penalty by the param count (as MEAL does) makes EWC_COEF
-    # roughly comparable between the CNN and MLP torsos.
     ewc_coef = float(config.get("EWC_COEF", 0.0))
     n_agent_params = sum(x.size for x in jax.tree.leaves(params))
+    # A-GEM reference gradient: BC loss on a random batch from past-task memory.
+    agem_grad_fn = make_agem_grad_fn(network, actor, critic, config)
 
     # EWC: (lambda/2) * mean_i F_i * (theta_i - theta*_i)^2, anchoring params to
     # the previous tasks' solution proportionally to their Fisher importance.
@@ -478,15 +453,11 @@ def train(
         entropy_loss = entropy.mean()
         loss = pg_loss - config["ENT_COEF"] * entropy_loss + v_loss * config["VF_COEF"]
         if ewc_state is not None:
-            sq = jax.tree.map(
-                lambda p, o, f: (f * (p - o) ** 2).sum(),
-                params, ewc_state.old_params, ewc_state.fisher,
-            )
-            ewc_penalty = 0.5 * ewc_coef * sum(jax.tree.leaves(sq)) / n_agent_params
-            loss = loss + ewc_penalty
+            ewc_pen = ewc_penalty(params, ewc_state, ewc_coef, n_agent_params)
+            loss = loss + ewc_pen
         else:
-            ewc_penalty = jnp.array(0.0)
-        return loss, (pg_loss, v_loss, entropy_loss, jax.lax.stop_gradient(approx_kl), ewc_penalty)
+            ewc_pen = jnp.array(0.0)
+        return loss, (pg_loss, v_loss, entropy_loss, jax.lax.stop_gradient(approx_kl), ewc_pen)
 
     # Differentiates w.r.t. argnums=0 (params) only; ewc_state is a constant input.
     ppo_loss_grad_fn = jax.value_and_grad(ppo_loss, has_aux=True)
@@ -496,11 +467,12 @@ def train(
         agent_state: TrainState,
         storage: Storage,
         ewc_state: "EWCState | None",
+        agem_memory: "AGEMMemory | None",
         key: jax.random.PRNGKey,
     ):
         def update_epoch(carry, unused_inp):
             agent_state, key = carry
-            key, subkey = jax.random.split(key)
+            key, subkey, mem_key = jax.random.split(key, 3)
 
             def flatten(x):
                 return x.reshape((-1,) + x.shape[2:])
@@ -512,11 +484,15 @@ def train(
 
             flatten_storage = jax.tree.map(flatten, storage)
             shuffled_storage = jax.tree.map(convert_data, flatten_storage)
+            # Per-minibatch keys for A-GEM memory sampling; dead code when A-GEM is off.
+            mb_keys = jax.random.split(mem_key, config["NUM_MINIBATCHES"])
 
-            # >>> A-GEM HOOK: `grads` is available here before apply_gradients -
-            #     project against a reference gradient if grads . g_ref < 0.
-            def update_minibatch(agent_state, minibatch):
-                (loss, (pg_loss, v_loss, entropy_loss, approx_kl, ewc_penalty)), grads = ppo_loss_grad_fn(
+            # A-GEM: project the raw PPO grads before Adam sees them, so the
+            # applied update cannot point against the past-task memory gradient.
+            # `agem_memory is None` is resolved at trace time (like ewc_state).
+            def update_minibatch(agent_state, xs):
+                minibatch, mb_key = xs
+                (loss, (pg_loss, v_loss, entropy_loss, approx_kl, ewc_pen)), grads = ppo_loss_grad_fn(
                     agent_state.params,
                     ewc_state,
                     minibatch.obs,
@@ -525,18 +501,23 @@ def train(
                     minibatch.advantages,
                     minibatch.returns,
                 )
+                if agem_memory is not None:
+                    mem_grads = agem_grad_fn(agent_state.params, agem_memory, mb_key)
+                    grads, agem_dot, agem_proj = agem_project(grads, mem_grads)
+                else:
+                    agem_dot, agem_proj = jnp.array(0.0), jnp.array(0.0)
                 agent_state = agent_state.apply_gradients(grads=grads)
-                return agent_state, (loss, pg_loss, v_loss, entropy_loss, approx_kl, ewc_penalty, grads)
+                return agent_state, (loss, pg_loss, v_loss, entropy_loss, approx_kl, ewc_pen, agem_dot, agem_proj, grads)
 
-            agent_state, (loss, pg_loss, v_loss, entropy_loss, approx_kl, ewc_penalty, grads) = jax.lax.scan(
-                update_minibatch, agent_state, shuffled_storage
+            agent_state, (loss, pg_loss, v_loss, entropy_loss, approx_kl, ewc_pen, agem_dot, agem_proj, grads) = jax.lax.scan(
+                update_minibatch, agent_state, (shuffled_storage, mb_keys)
             )
-            return (agent_state, key), (loss, pg_loss, v_loss, entropy_loss, approx_kl, ewc_penalty, grads)
+            return (agent_state, key), (loss, pg_loss, v_loss, entropy_loss, approx_kl, ewc_pen, agem_dot, agem_proj, grads)
 
-        (agent_state, key), (loss, pg_loss, v_loss, entropy_loss, approx_kl, ewc_penalty, grads) = jax.lax.scan(
+        (agent_state, key), (loss, pg_loss, v_loss, entropy_loss, approx_kl, ewc_pen, agem_dot, agem_proj, grads) = jax.lax.scan(
             update_epoch, (agent_state, key), (), length=config["UPDATE_EPOCHS"]
         )
-        return agent_state, loss, pg_loss, v_loss, entropy_loss, approx_kl, ewc_penalty, key
+        return agent_state, loss, pg_loss, v_loss, entropy_loss, approx_kl, ewc_pen, agem_dot, agem_proj, key
 
     # ========================================================================
     # ROLLOUT + TRAINING LOOP
@@ -572,49 +553,8 @@ def train(
 
     rollout = partial(rollout, step_once_fn=partial(step_once, env_step_fn=vmap_step), max_steps=config["NUM_STEPS"])
 
-    # EWC diagonal Fisher over on-policy (s, a) samples: F = mean[(grad log pi(a|s))^2].
-    # Per-sample grads are needed (mean of squares != square of mean), so samples are
-    # processed as a scan over chunks with a vmapped grad inside - peak extra memory is
-    # EWC_FISHER_CHUNK x n_params instead of samples x n_params, and the whole thing
-    # stays jitted/on-device. Critic params never enter log pi, so their Fisher is 0.
-    @jax.jit
-    def compute_fisher(params: AgentParams, storage: Storage, key: jax.random.PRNGKey) -> AgentParams:
-        chunk = int(config.get("EWC_FISHER_CHUNK", 128))
-        batch = int(config["NUM_STEPS"] * config["NUM_ENVS"])
-        num_samples = min(int(config.get("EWC_FISHER_SAMPLES", 65536)), batch)
-        num_samples = (num_samples // chunk) * chunk
-        assert num_samples > 0, "EWC_FISHER_SAMPLES and EWC_FISHER_CHUNK yield zero Fisher samples"
-
-        obs_flat = storage.obs.reshape((batch,) + storage.obs.shape[2:])
-        actions_flat = storage.actions.reshape(batch)
-        # Chunked index gather (instead of materializing obs_flat[idx] up front) keeps
-        # the pixel-obs case from allocating a second full observation batch.
-        idx = jax.random.permutation(key, batch)[:num_samples].reshape(-1, chunk)
-
-        def logp_single(p, ob, act):
-            hidden = network.apply(p.network_params, ob[None, ...])
-            logits = actor.apply(p.actor_params, hidden)
-            return jax.nn.log_softmax(logits)[0, act]
-
-        grad_single = jax.grad(logp_single)
-
-        def accumulate_chunk(acc, idx_c):
-            ob = jnp.take(obs_flat, idx_c, axis=0)
-            act = jnp.take(actions_flat, idx_c, axis=0)
-            g = jax.vmap(grad_single, in_axes=(None, 0, 0))(params, ob, act)
-            return jax.tree.map(lambda a, x: a + jnp.square(x).sum(0), acc, g), None
-
-        fisher0 = jax.tree.map(jnp.zeros_like, params)
-        fisher, _ = jax.lax.scan(accumulate_chunk, fisher0, idx)
-        fisher = jax.tree.map(lambda x: x / num_samples, fisher)
-
-        if config.get("EWC_NORMALIZE_FISHER", True):
-            # Rescale to mean(|F|) = 1 so EWC_COEF keeps the same meaning across
-            # tasks/architectures whose raw Fisher magnitudes differ by orders of magnitude.
-            leaves = jax.tree.leaves(fisher)
-            mean_abs = sum(jnp.abs(x).sum() for x in leaves) / sum(x.size for x in leaves)
-            fisher = jax.tree.map(lambda x: x / (mean_abs + 1e-12), fisher)
-        return fisher
+    # Post-task EWC Fisher estimator (see crl_methods.py for the details).
+    compute_fisher = make_fisher_fn(network, actor, config)
 
     # RTPT reports estimated time-to-completion to the OS process title.
     rtpt = RTPT(name_initials=config.get("NAME_INITIALS", "RE"), experiment_name='PPO_CRL_Finetune', max_iterations=config["NUM_ITERATIONS"])
@@ -636,10 +576,11 @@ def train(
             save_obs_debug_frame(config, storage.obs[-1], run_name)
         global_step += config["NUM_STEPS"] * config["NUM_ENVS"]
         storage = compute_gae(agent_state, next_obs, next_done, storage)
-        agent_state, loss, pg_loss, v_loss, entropy_loss, approx_kl, ewc_penalty, key = update_ppo(
+        agent_state, loss, pg_loss, v_loss, entropy_loss, approx_kl, ewc_pen, agem_dot, agem_proj, key = update_ppo(
             agent_state,
             storage,
             ewc_state,
+            agem_memory,
             key,
         )
         if compile_time is None:
@@ -670,7 +611,17 @@ def train(
             f"{loss_section}/entropy": entropy_loss[-1, -1].item(),
             f"{loss_section}/approx_kl": approx_kl[-1, -1].item(),
             f"{loss_section}/loss": loss[-1, -1].item(),
-            **({f"{loss_section}/ewc_penalty": ewc_penalty[-1, -1].item()} if ewc_state is not None else {}),
+            **({f"{loss_section}/ewc_penalty": ewc_pen[-1, -1].item()} if ewc_state is not None else {}),
+            # agem_proj is 0/1 per minibatch; the mean is the fraction of minibatches
+            # whose gradient conflicted with memory and was projected this iteration.
+            **(
+                {
+                    f"{loss_section}/agem_projected_frac": agem_proj.mean().item(),
+                    f"{loss_section}/agem_dot": agem_dot[-1, -1].item(),
+                }
+                if agem_memory is not None
+                else {}
+            ),
             f"{chart_section}/SPS": int(global_step / (time.time() - start_time)),
             f"{chart_section}/SPS_update": int(config["NUM_ENVS"] * config["NUM_STEPS"] / (time.time() - iteration_time_start)),
             f"{chart_section}/time": time.time() - start_time,
@@ -694,15 +645,25 @@ def train(
     if config["TRACK"] and manage_wandb:
         wandb.finish()
 
-    if return_fisher:
-        # One extra rollout with the *final* params so Fisher samples (s, a) ~ pi_theta
-        # exactly; the last training rollout was collected by a slightly older policy.
-        fisher_start = time.time()
-        _, _, _, fisher_storage, key, _, _ = rollout(agent_state, next_obs, next_done, key, env_state)
-        key, fisher_key = jax.random.split(key)
-        fisher = compute_fisher(agent_state.params, fisher_storage, fisher_key)
-        fisher = jax.block_until_ready(fisher)
-        print(f"[EWC] Fisher estimation (rollout + grads) took {time.time() - fisher_start:.2f} seconds.")
-        return agent_state.params, fisher
+    if return_fisher or return_agem_samples:
+        # One extra rollout with the *final* params so the post-task CL state is built
+        # from (s, a) ~ pi_theta exactly; the last training rollout was collected by a
+        # slightly older policy.
+        post_start = time.time()
+        _, post_next_obs, post_next_done, post_storage, key, _, _ = rollout(
+            agent_state, next_obs, next_done, key, env_state
+        )
+        key, post_key = jax.random.split(key)
+        if return_fisher:
+            fisher = compute_fisher(agent_state.params, post_storage, post_key)
+            fisher = jax.block_until_ready(fisher)
+            print(f"[EWC] Fisher estimation (rollout + grads) took {time.time() - post_start:.2f} seconds.")
+            return agent_state.params, fisher
+        # A-GEM stores GAE returns as critic BC targets, so complete the rollout first.
+        post_storage = compute_gae(agent_state, post_next_obs, post_next_done, post_storage)
+        block = agem_sample_block(post_storage, post_key, int(config.get("AGEM_MEMORY_PER_TASK", 4096)))
+        block = jax.block_until_ready(block)
+        print(f"[A-GEM] memory block of {block.actions.shape[0]} transitions sampled in {time.time() - post_start:.2f} seconds.")
+        return agent_state.params, block
 
     return agent_state.params
