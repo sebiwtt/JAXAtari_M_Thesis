@@ -1,22 +1,16 @@
 # =============================================================================
 # Continual-RL evaluation harness for the JAXtari PPO trainer
 # =============================================================================
-# Trains ONE agent sequentially over ordered single-mod Pong tasks, carrying params
-# forward. CL_METHOD selects the continual-learning method (see crl_methods.py):
-#   "ft"  (default) - naive finetuning, no forgetting mitigation
-#   "ewc"           - Elastic Weight Consolidation (Kirkpatrick et al. 2017): after each
-#                     task a diagonal Fisher is estimated and folded into an EWCState
-#                     (EWC_MODE last/multi/online); subsequent tasks add the quadratic
-#                     penalty 0.5*EWC_COEF*mean_i F_i (theta_i - theta*_i)^2 to the PPO loss.
-#   "agem"          - Averaged Gradient Episodic Memory (Chaudhry et al. 2019): after each
-#                     task, AGEM_MEMORY_PER_TASK transitions from a final-policy rollout
-#                     are appended to an episodic memory; subsequent tasks project every
-#                     minibatch gradient that conflicts with the memory's BC gradient.
-#   "packnet"       - PackNet (Mallya & Lazebnik 2018): each task's budget is split into
-#                     train -> prune -> finetune (PACKNET_FINETUNE_FRAC). Pruning gives
-#                     each task an equal share of the network's free weights; earlier
-#                     tasks' weights are frozen via gradient masks, and R[i,j] (j <= i)
-#                     is evaluated on task j's recovered subnetwork.
+# Trains ONE agent sequentially over ordered single-mod Pong tasks, carrying
+# params forward. CL_METHOD selects the continual-learning method; methods live
+# in continual/ (one file each) behind the continual.base.CLMethod interface,
+# so this loop is method-agnostic:
+#
+#   ft      - naive finetuning (no mitigation)
+#   ewc     - Elastic Weight Consolidation      (continual/ewc.py)
+#   agem    - Averaged Gradient Episodic Memory (continual/agem.py)
+#   packnet - PackNet iterative pruning         (continual/packnet.py)
+#
 # After each task, evaluates on every task seen so far:
 #
 #   R[i, j]         = return of the agent trained through task i, evaluated on task j  (j <= i)
@@ -27,7 +21,8 @@
 #
 # EVAL_FULL_MATRIX also fills j > i: forward transfer to not-yet-trained tasks.
 #
-# Orchestration only; PPO lives in `ppo_trainer.train`, evaluation in `ppo_eval.evaluate`.
+# Orchestration only; PPO lives in `ppo_trainer.train`, evaluation in
+# `ppo_eval.evaluate`, models in `networks.py`, envs in `envs.py`.
 # =============================================================================
 
 import json
@@ -41,18 +36,11 @@ import numpy as np
 import wandb
 from omegaconf import OmegaConf
 
-from crl_methods import (
-    agem_extend_memory,
-    ewc_update_state,
-    packnet_eval_params,
-    packnet_finetune_mask,
-    packnet_init_owner,
-    packnet_ownership_summary,
-    packnet_prune,
-    packnet_train_mask,
-)
+from continual import make_cl_method
+from envs import make_env
+from networks import Actor, AgentParams, Critic, MLP_Network, Network
 from ppo_eval import evaluate
-from ppo_trainer import AgentParams, Actor, Critic, MLP_Network, Network, make_env, train
+from ppo_trainer import train
 
 
 def _task_label(mods) -> str:
@@ -100,15 +88,18 @@ def _init_random_agent_params(config: dict, key: jax.random.PRNGKey) -> AgentPar
     )
 
 
+def _save_checkpoint(path: str, config: dict, params: AgentParams) -> None:
+    """Serialization format `ppo_eval.evaluate` expects."""
+    with open(path, "wb") as f:
+        f.write(
+            flax.serialization.to_bytes(
+                [config, [params.network_params, params.actor_params, params.critic_params]]
+            )
+        )
+
+
 def run_continual(config: dict) -> None:
     config = {k.upper(): v for k, v in config.items() if k != "alg"}
-
-    cl_method = str(config.get("CL_METHOD", "ft")).lower()
-    assert cl_method in ("ft", "ewc", "agem", "packnet"), (
-        f"unknown CL_METHOD {cl_method!r} (supported: 'ft', 'ewc', 'agem', 'packnet')"
-    )
-    if cl_method == "ewc":
-        assert float(config.get("EWC_COEF", 0.0)) > 0.0, "CL_METHOD=ewc requires EWC_COEF > 0"
 
     task_mods_list = [list(m) for m in config["TASK_MODS"]]
     assert len(task_mods_list) > 0, "TASK_MODS must contain at least one task"
@@ -117,6 +108,9 @@ def run_continual(config: dict) -> None:
         assert len(mods) <= 1, f"CRL tasks must use at most one mod each; TASK_MODS[{i}]={mods} has {len(mods)}"
     num_tasks = len(task_mods_list)
     labels = [_task_label(m) for m in task_mods_list]
+
+    # Validates CL_METHOD and its config keys before any training starts.
+    method = make_cl_method(config, num_tasks)
 
     # Mirrors train()'s own derivation, needed here for the wandb step offset.
     batch_size = int(config["NUM_ENVS"] * config["NUM_STEPS"])
@@ -143,12 +137,7 @@ def run_continual(config: dict) -> None:
     # EVAL_SEED (not SEED) so it's independent of the training seed.
     rand_params = _init_random_agent_params(config, jax.random.PRNGKey(config["EVAL_SEED"]))
     rand_ckpt_path = f"{run_dir}/random_agent.cleanrl_model"
-    with open(rand_ckpt_path, "wb") as f:
-        f.write(
-            flax.serialization.to_bytes(
-                [config, [rand_params.network_params, rand_params.actor_params, rand_params.critic_params]]
-            )
-        )
+    _save_checkpoint(rand_ckpt_path, config, rand_params)
     print(f"[CRL] random-agent baseline checkpoint saved to {rand_ckpt_path}")
 
     R_rand = np.full(num_tasks, np.nan)
@@ -181,22 +170,13 @@ def run_continual(config: dict) -> None:
         R_rand[j] = float(episodic_returns.mean())
         print(f"[CRL] R_rand[{j}] (random agent on task {j}={labels[j]!r}) = {R_rand[j]:.3f}")
 
+    # CL method state: built once from param shapes, carried through the task loop.
+    cl_state = method.init_state(rand_params)
+    eval_tmp_path = f"{run_dir}/cl_eval_tmp.cleanrl_model"
+
     R = np.full((num_tasks, num_tasks), np.nan)
     ckpt_paths: list[str] = []
     carried_params = None
-    ewc_state = None
-    agem_memory = None
-
-    pn_owner = None
-    if cl_method == "packnet":
-        # Owner tree needs param shapes only; rand_params has the same architecture.
-        pn_owner = packnet_init_owner(rand_params)
-        pn_ft_frac = float(config.get("PACKNET_FINETUNE_FRAC", 0.2))
-        assert 0.0 < pn_ft_frac < 1.0, "PACKNET_FINETUNE_FRAC must be in (0, 1)"
-        pn_ft_iters = max(1, round(num_iterations * pn_ft_frac))
-        pn_train_iters = num_iterations - pn_ft_iters
-        assert pn_train_iters >= 1, "PACKNET_FINETUNE_FRAC leaves no iterations for the train phase"
-        print(f"[CRL] PackNet per-task split: {pn_train_iters} train + {pn_ft_iters} finetune iterations")
 
     for i in range(num_tasks):
         task_mods = task_mods_list[i]
@@ -204,103 +184,36 @@ def run_continual(config: dict) -> None:
         task_config["TRAIN_MODS"] = tuple(task_mods)
 
         task_run_name = f"{base_run_name}_task{i}"
-        print(f"\n=== CRL task {i}/{num_tasks - 1}: mods={task_mods} (label={labels[i]!r}, cl_method={cl_method}) ===")
-        # Post-task CL state (Fisher / memory block) of the last task would never be
-        # consumed by a later task, so skip collecting it.
-        want_fisher = cl_method == "ewc" and i < num_tasks - 1
-        want_agem_samples = cl_method == "agem" and i < num_tasks - 1
-        if cl_method == "packnet":
-            # Phase 1/2: train on the free capacity (+ this task's weights + shared critic).
-            train_cfg = dict(task_config)
-            train_cfg["TOTAL_TIMESTEPS"] = pn_train_iters * batch_size
-            carried_params = train(
-                train_cfg,
-                init_params=carried_params,
-                run_name=task_run_name,
-                manage_wandb=False,
-                wandb_step_offset=i * num_iterations,
-                wandb_group=labels[i],
-                grad_mask=packnet_train_mask(pn_owner, i),
-            )
-            # Prune: task i claims its equal share of free weights, the rest are zeroed.
-            carried_params, pn_owner = packnet_prune(carried_params, pn_owner, i, num_tasks)
-            print(f"[CRL] PackNet pruned after task {i}; ownership fractions: {packnet_ownership_summary(pn_owner)}")
-            # Phase 2/2: finetune only task i's weights to recover from the pruning.
-            ft_cfg = dict(task_config)
-            ft_cfg["TOTAL_TIMESTEPS"] = pn_ft_iters * batch_size
-            ft_cfg["LEARNING_RATE"] = float(config.get("PACKNET_FINETUNE_LR", config["LEARNING_RATE"]))
-            carried_params = train(
-                ft_cfg,
-                init_params=carried_params,
-                run_name=f"{task_run_name}_ft",
-                manage_wandb=False,
-                wandb_step_offset=i * num_iterations + pn_train_iters,
-                wandb_group=labels[i],
-                grad_mask=packnet_finetune_mask(pn_owner, i),
-            )
-            result = carried_params
-        else:
-            result = train(
-                task_config,
-                init_params=carried_params,
-                run_name=task_run_name,
-                manage_wandb=False,
-                wandb_step_offset=i * num_iterations,
-                wandb_group=labels[i],
-                ewc_state=ewc_state,
-                return_fisher=want_fisher,
-                agem_memory=agem_memory,
-                return_agem_samples=want_agem_samples,
-            )
-        if want_fisher:
-            carried_params, new_fisher = result
-            ewc_state = ewc_update_state(
-                ewc_state,
-                carried_params,
-                new_fisher,
-                mode=config.get("EWC_MODE", "online"),
-                decay=config.get("EWC_DECAY", 0.9),
-            )
-            print(f'[CRL] EWC state updated after task {i} (mode={config.get("EWC_MODE", "online")})')
-        elif want_agem_samples:
-            carried_params, new_block = result
-            agem_memory = agem_extend_memory(agem_memory, new_block)
-            print(f"[CRL] A-GEM memory extended after task {i} (total {agem_memory.actions.shape[0]} transitions)")
-        else:
-            carried_params = result
+        print(f"\n=== CRL task {i}/{num_tasks - 1}: mods={task_mods} (label={labels[i]!r}, cl_method={method.name}) ===")
+        carried_params, cl_state = method.train_task(
+            train,
+            task_config,
+            carried_params,
+            cl_state,
+            i,
+            run_name=task_run_name,
+            wandb_step_offset=i * num_iterations,
+            manage_wandb=False,
+            wandb_group=labels[i],
+        )
 
-        # Same serialization format as evaluate() expects, so it can load this unmodified.
         ckpt_path = f"{run_dir}/task_{i}.cleanrl_model"
-        with open(ckpt_path, "wb") as f:
-            f.write(
-                flax.serialization.to_bytes(
-                    [
-                        task_config,
-                        [carried_params.network_params, carried_params.actor_params, carried_params.critic_params],
-                    ]
-                )
-            )
+        _save_checkpoint(ckpt_path, task_config, carried_params)
         print(f"[CRL] task {i} checkpoint saved to {ckpt_path}")
         ckpt_paths.append(ckpt_path)
 
         # j <= i: retention (tasks already trained on). EVAL_FULL_MATRIX also fills
-        # j > i: forward transfer to tasks not yet trained on.
+        # j > i: forward transfer to tasks not yet trained on. Methods may substitute
+        # task-specific eval params (e.g. PackNet subnetworks) via eval_params.
         eval_js = range(num_tasks) if config.get("EVAL_FULL_MATRIX", False) else range(i + 1)
         for j in eval_js:
             eval_mods = task_mods_list[j]
-            eval_ckpt_path = ckpt_path
-            if cl_method == "packnet" and j <= i:
-                # Original-PackNet eval: task j runs on its recovered subnetwork (weights
-                # owned by tasks <= j; later tasks' weights and free capacity zeroed).
-                # j > i (forward transfer) keeps the full current params instead.
-                masked = packnet_eval_params(carried_params, pn_owner, j)
-                eval_ckpt_path = f"{run_dir}/packnet_eval_tmp.cleanrl_model"
-                with open(eval_ckpt_path, "wb") as f:
-                    f.write(
-                        flax.serialization.to_bytes(
-                            [task_config, [masked.network_params, masked.actor_params, masked.critic_params]]
-                        )
-                    )
+            eval_params = method.eval_params(carried_params, cl_state, j, i)
+            if eval_params is carried_params:
+                eval_ckpt_path = ckpt_path
+            else:
+                eval_ckpt_path = eval_tmp_path
+                _save_checkpoint(eval_ckpt_path, task_config, eval_params)
             episodic_returns, _, completed = evaluate(
                 model_path=eval_ckpt_path,
                 make_env=partial(
@@ -328,6 +241,10 @@ def run_continual(config: dict) -> None:
             kind = "forward transfer" if j > i else "retention"
             print(f"[CRL] R[{i},{j}] ({kind}: train through task {i}={labels[i]!r}, eval on task {j}={labels[j]!r}) = {R[i, j]:.3f}")
 
+    method.save_artifacts(cl_state, run_dir)
+    if os.path.exists(eval_tmp_path):
+        os.remove(eval_tmp_path)
+
     diag = np.diag(R)  # R[j, j], populated before it's needed as a denominator
     Retention = np.full((num_tasks, num_tasks), np.nan)
     for i in range(num_tasks):
@@ -340,21 +257,6 @@ def run_continual(config: dict) -> None:
                 )
                 continue
             Retention[i, j] = (R[i, j] - R_rand[j]) / denom
-
-    if cl_method == "packnet":
-        # Owner tree is needed to recover per-task subnetworks from the (full) task_i
-        # checkpoints later; without it the masked eval params are not reproducible.
-        owner_path = f"{run_dir}/packnet_owner.msgpack"
-        with open(owner_path, "wb") as f:
-            f.write(
-                flax.serialization.to_bytes(
-                    [pn_owner.network_params, pn_owner.actor_params, pn_owner.critic_params]
-                )
-            )
-        print(f"[CRL] PackNet owner tree saved to {owner_path}")
-        tmp_path = f"{run_dir}/packnet_eval_tmp.cleanrl_model"
-        if os.path.exists(tmp_path):
-            os.remove(tmp_path)
 
     _print_matrix("R (mean return)", R, labels)
     _print_vector("R_rand (random-agent floor)", R_rand, labels)
@@ -375,6 +277,7 @@ def run_continual(config: dict) -> None:
             {
                 "env_id": config["ENV_ID"],
                 "exp_name": config["EXP_NAME"],
+                "cl_method": method.name,
                 "task_mods": task_mods_list,
                 "labels": labels,
                 "R": R.tolist(),

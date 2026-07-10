@@ -33,7 +33,9 @@ import wandb
 from omegaconf import OmegaConf
 
 from ppo_eval import evaluate
-from ppo_trainer import AgentParams, Actor, Critic, MLP_Network, Network, make_env, train
+from envs import make_env
+from networks import Actor, AgentParams, Critic, MLP_Network, Network
+from ppo_trainer import train
 
 
 def _task_label(mods) -> str:
