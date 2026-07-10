@@ -12,6 +12,11 @@
 #                     task, AGEM_MEMORY_PER_TASK transitions from a final-policy rollout
 #                     are appended to an episodic memory; subsequent tasks project every
 #                     minibatch gradient that conflicts with the memory's BC gradient.
+#   "packnet"       - PackNet (Mallya & Lazebnik 2018): each task's budget is split into
+#                     train -> prune -> finetune (PACKNET_FINETUNE_FRAC). Pruning gives
+#                     each task an equal share of the network's free weights; earlier
+#                     tasks' weights are frozen via gradient masks, and R[i,j] (j <= i)
+#                     is evaluated on task j's recovered subnetwork.
 # After each task, evaluates on every task seen so far:
 #
 #   R[i, j]         = return of the agent trained through task i, evaluated on task j  (j <= i)
@@ -36,7 +41,16 @@ import numpy as np
 import wandb
 from omegaconf import OmegaConf
 
-from crl_methods import agem_extend_memory, ewc_update_state
+from crl_methods import (
+    agem_extend_memory,
+    ewc_update_state,
+    packnet_eval_params,
+    packnet_finetune_mask,
+    packnet_init_owner,
+    packnet_ownership_summary,
+    packnet_prune,
+    packnet_train_mask,
+)
 from ppo_eval import evaluate
 from ppo_trainer import AgentParams, Actor, Critic, MLP_Network, Network, make_env, train
 
@@ -90,7 +104,9 @@ def run_continual(config: dict) -> None:
     config = {k.upper(): v for k, v in config.items() if k != "alg"}
 
     cl_method = str(config.get("CL_METHOD", "ft")).lower()
-    assert cl_method in ("ft", "ewc", "agem"), f"unknown CL_METHOD {cl_method!r} (supported: 'ft', 'ewc', 'agem')"
+    assert cl_method in ("ft", "ewc", "agem", "packnet"), (
+        f"unknown CL_METHOD {cl_method!r} (supported: 'ft', 'ewc', 'agem', 'packnet')"
+    )
     if cl_method == "ewc":
         assert float(config.get("EWC_COEF", 0.0)) > 0.0, "CL_METHOD=ewc requires EWC_COEF > 0"
 
@@ -171,6 +187,17 @@ def run_continual(config: dict) -> None:
     ewc_state = None
     agem_memory = None
 
+    pn_owner = None
+    if cl_method == "packnet":
+        # Owner tree needs param shapes only; rand_params has the same architecture.
+        pn_owner = packnet_init_owner(rand_params)
+        pn_ft_frac = float(config.get("PACKNET_FINETUNE_FRAC", 0.2))
+        assert 0.0 < pn_ft_frac < 1.0, "PACKNET_FINETUNE_FRAC must be in (0, 1)"
+        pn_ft_iters = max(1, round(num_iterations * pn_ft_frac))
+        pn_train_iters = num_iterations - pn_ft_iters
+        assert pn_train_iters >= 1, "PACKNET_FINETUNE_FRAC leaves no iterations for the train phase"
+        print(f"[CRL] PackNet per-task split: {pn_train_iters} train + {pn_ft_iters} finetune iterations")
+
     for i in range(num_tasks):
         task_mods = task_mods_list[i]
         task_config = dict(config)
@@ -182,18 +209,49 @@ def run_continual(config: dict) -> None:
         # consumed by a later task, so skip collecting it.
         want_fisher = cl_method == "ewc" and i < num_tasks - 1
         want_agem_samples = cl_method == "agem" and i < num_tasks - 1
-        result = train(
-            task_config,
-            init_params=carried_params,
-            run_name=task_run_name,
-            manage_wandb=False,
-            wandb_step_offset=i * num_iterations,
-            wandb_group=labels[i],
-            ewc_state=ewc_state,
-            return_fisher=want_fisher,
-            agem_memory=agem_memory,
-            return_agem_samples=want_agem_samples,
-        )
+        if cl_method == "packnet":
+            # Phase 1/2: train on the free capacity (+ this task's weights + shared critic).
+            train_cfg = dict(task_config)
+            train_cfg["TOTAL_TIMESTEPS"] = pn_train_iters * batch_size
+            carried_params = train(
+                train_cfg,
+                init_params=carried_params,
+                run_name=task_run_name,
+                manage_wandb=False,
+                wandb_step_offset=i * num_iterations,
+                wandb_group=labels[i],
+                grad_mask=packnet_train_mask(pn_owner, i),
+            )
+            # Prune: task i claims its equal share of free weights, the rest are zeroed.
+            carried_params, pn_owner = packnet_prune(carried_params, pn_owner, i, num_tasks)
+            print(f"[CRL] PackNet pruned after task {i}; ownership fractions: {packnet_ownership_summary(pn_owner)}")
+            # Phase 2/2: finetune only task i's weights to recover from the pruning.
+            ft_cfg = dict(task_config)
+            ft_cfg["TOTAL_TIMESTEPS"] = pn_ft_iters * batch_size
+            ft_cfg["LEARNING_RATE"] = float(config.get("PACKNET_FINETUNE_LR", config["LEARNING_RATE"]))
+            carried_params = train(
+                ft_cfg,
+                init_params=carried_params,
+                run_name=f"{task_run_name}_ft",
+                manage_wandb=False,
+                wandb_step_offset=i * num_iterations + pn_train_iters,
+                wandb_group=labels[i],
+                grad_mask=packnet_finetune_mask(pn_owner, i),
+            )
+            result = carried_params
+        else:
+            result = train(
+                task_config,
+                init_params=carried_params,
+                run_name=task_run_name,
+                manage_wandb=False,
+                wandb_step_offset=i * num_iterations,
+                wandb_group=labels[i],
+                ewc_state=ewc_state,
+                return_fisher=want_fisher,
+                agem_memory=agem_memory,
+                return_agem_samples=want_agem_samples,
+            )
         if want_fisher:
             carried_params, new_fisher = result
             ewc_state = ewc_update_state(
@@ -230,8 +288,21 @@ def run_continual(config: dict) -> None:
         eval_js = range(num_tasks) if config.get("EVAL_FULL_MATRIX", False) else range(i + 1)
         for j in eval_js:
             eval_mods = task_mods_list[j]
+            eval_ckpt_path = ckpt_path
+            if cl_method == "packnet" and j <= i:
+                # Original-PackNet eval: task j runs on its recovered subnetwork (weights
+                # owned by tasks <= j; later tasks' weights and free capacity zeroed).
+                # j > i (forward transfer) keeps the full current params instead.
+                masked = packnet_eval_params(carried_params, pn_owner, j)
+                eval_ckpt_path = f"{run_dir}/packnet_eval_tmp.cleanrl_model"
+                with open(eval_ckpt_path, "wb") as f:
+                    f.write(
+                        flax.serialization.to_bytes(
+                            [task_config, [masked.network_params, masked.actor_params, masked.critic_params]]
+                        )
+                    )
             episodic_returns, _, completed = evaluate(
-                model_path=ckpt_path,
+                model_path=eval_ckpt_path,
                 make_env=partial(
                     make_env,
                     mods=eval_mods,
@@ -269,6 +340,21 @@ def run_continual(config: dict) -> None:
                 )
                 continue
             Retention[i, j] = (R[i, j] - R_rand[j]) / denom
+
+    if cl_method == "packnet":
+        # Owner tree is needed to recover per-task subnetworks from the (full) task_i
+        # checkpoints later; without it the masked eval params are not reproducible.
+        owner_path = f"{run_dir}/packnet_owner.msgpack"
+        with open(owner_path, "wb") as f:
+            f.write(
+                flax.serialization.to_bytes(
+                    [pn_owner.network_params, pn_owner.actor_params, pn_owner.critic_params]
+                )
+            )
+        print(f"[CRL] PackNet owner tree saved to {owner_path}")
+        tmp_path = f"{run_dir}/packnet_eval_tmp.cleanrl_model"
+        if os.path.exists(tmp_path):
+            os.remove(tmp_path)
 
     _print_matrix("R (mean return)", R, labels)
     _print_vector("R_rand (random-agent floor)", R_rand, labels)

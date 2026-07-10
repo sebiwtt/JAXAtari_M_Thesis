@@ -12,11 +12,16 @@
 #        episodic memory of past-task transitions (`make_agem_grad_fn`);
 #        memory blocks are sampled post-task via `agem_sample_block` and
 #        concatenated with `agem_extend_memory`.
+#   PackNet (Mallya & Lazebnik 2018) - `grad_mask` in `update_minibatch`
+#        (built by `packnet_train_mask` / `packnet_finetune_mask` over an
+#        integer "owner" tree); `packnet_prune` assigns weights after each
+#        task's train phase, `packnet_eval_params` recovers a task's
+#        subnetwork at evaluation time.
 #
-# Both are ported from MEAL's IPPO implementation (github.com/TTomilin/MEAL)
-# and adapted to this trainer's one-task-per-`train()`-call structure: state
-# is estimated once per finished task from a fresh final-policy rollout,
-# instead of MEAL's continuous in-training updates.
+# All are ported from MEAL's IPPO implementation (github.com/TTomilin/MEAL)
+# and adapted to this trainer's one-task-per-`train()`-call structure: per-task
+# CL state transitions happen in plain Python in the orchestrator, instead of
+# MEAL's lax.cond-heavy in-jit updates.
 # =============================================================================
 
 import flax
@@ -225,3 +230,118 @@ def agem_project(grads, mem_grads):
     dot_g = jnp.vdot(g, g_mem)
     projected = jnp.where(dot_g < 0, g - (dot_g / (jnp.vdot(g_mem, g_mem) + 1e-12)) * g_mem, g)
     return unravel(projected), dot_g, (dot_g < 0).astype(jnp.float32)
+
+
+# =============================================================================
+# PackNet - iterative pruning (Mallya & Lazebnik 2018)
+# =============================================================================
+# Each weight is tagged in an integer "owner" tree shaped like AgentParams:
+#   -1 (FREE)   - unassigned capacity, trainable by the current and future tasks
+#   t >= 0      - owned by task t: frozen for later tasks, kept when evaluating
+#                 any task >= t
+#   -2 (SHARED) - always trainable, always kept (the critic: it never drives
+#                 action selection at eval, and each task needs a fresh value fn)
+#
+# Per task t: train (grads masked to free/shared weights) -> prune (top
+# 1/(tasks_left+1) of free weights per leaf become owned by t, the rest are
+# zeroed) -> finetune (grads masked to task-t/shared weights; the zeroed free
+# weights get zero grads, so Adam keeps them exactly 0). Biases of torso+actor
+# are owned by task 0 (trained once with the first task, then frozen), as in
+# MEAL. Unlike MEAL's multi-head setup, the single-head actor kernel is pruned
+# like the torso - with a shared head, a later task would otherwise overwrite
+# earlier tasks' policy outputs.
+#
+# The owner tree makes MEAL's per-task boolean mask stack, lax.cond dispatch,
+# and layer-name string matching unnecessary: all transitions run in plain
+# Python between train() calls; only the (precomputed) boolean grad mask enters
+# the jitted update.
+
+PACKNET_FREE = -1
+PACKNET_SHARED = -2
+
+
+def packnet_init_owner(params) -> "AgentParams":  # noqa: F821
+    """Build the initial owner tree from (freshly initialized) params."""
+
+    def init_field(tree, bias_owner):
+        return jax.tree_util.tree_map_with_path(
+            lambda path, leaf: jnp.full(
+                leaf.shape,
+                PACKNET_FREE if "kernel" in str(path[-1]) else bias_owner,
+                dtype=jnp.int32,
+            ),
+            tree,
+        )
+
+    return type(params)(
+        network_params=init_field(params.network_params, 0),
+        actor_params=init_field(params.actor_params, 0),
+        critic_params=jax.tree.map(
+            lambda leaf: jnp.full(leaf.shape, PACKNET_SHARED, dtype=jnp.int32), params.critic_params
+        ),
+    )
+
+
+def packnet_train_mask(owner, task: int):
+    """Trainable mask for task `task`'s initial train phase: free + shared weights,
+    plus anything already owned by this task (the task-0 biases during task 0)."""
+    return jax.tree.map(
+        lambda o: (o == PACKNET_FREE) | (o == PACKNET_SHARED) | (o == task), owner
+    )
+
+
+def packnet_finetune_mask(owner, task: int):
+    """Trainable mask for the post-prune finetune phase: only this task's weights
+    (+ shared). Free weights were just zeroed by the prune and must stay zero."""
+    return jax.tree.map(lambda o: (o == PACKNET_SHARED) | (o == task), owner)
+
+
+def packnet_prune(params, owner, task: int, num_tasks: int):
+    """Assign task `task` its share of the free weights, zero the rest.
+
+    Per leaf, the top 1/(tasks_left+1) of free weights by magnitude become owned
+    by `task` (equal share of the remaining capacity for every remaining task,
+    MEAL's balanced schedule; with 5 tasks each gets ~20% of the network). The
+    last task takes all remaining free weights and nothing is zeroed. Leaves
+    without free entries (biases, critic) pass through untouched. Runs eagerly
+    between train() calls, so plain Python control flow is fine.
+
+    The strict `> cutoff` means ties at the cutoff are NOT claimed - notably
+    weights still exactly 0 from an earlier prune (e.g. input columns of
+    constant observation features never receive gradient). Those weights are
+    useless to own and remain free for later tasks, so a task may claim less
+    than its nominal share without losing anything.
+    """
+    tasks_left = num_tasks - task - 1
+
+    def prune_leaf(p, o):
+        free = o == PACKNET_FREE
+        if not bool(free.any()):
+            return p, o
+        if tasks_left == 0:
+            return p, jnp.where(free, task, o)
+        prune_frac = tasks_left / (tasks_left + 1)
+        cutoff = jnp.nanquantile(jnp.where(free, jnp.abs(p), jnp.nan), prune_frac)
+        keep = free & (jnp.abs(p) > cutoff)
+        return jnp.where(free & ~keep, 0.0, p), jnp.where(keep, task, o)
+
+    params_leaves, treedef = jax.tree.flatten(params)
+    pruned = [prune_leaf(p, o) for p, o in zip(params_leaves, jax.tree.leaves(owner))]
+    return treedef.unflatten([p for p, _ in pruned]), treedef.unflatten([o for _, o in pruned])
+
+
+def packnet_eval_params(params, owner, task: int):
+    """Recover task `task`'s subnetwork: keep weights owned by tasks <= task and
+    shared ones, zero everything else (weights of later tasks and free capacity)."""
+    return jax.tree.map(
+        lambda p, o: jnp.where(((o >= 0) & (o <= task)) | (o == PACKNET_SHARED), p, jnp.zeros_like(p)),
+        params,
+        owner,
+    )
+
+
+def packnet_ownership_summary(owner) -> dict:
+    """Fraction of all params per owner code (for logging), e.g. {-2: .0, -1: .6, 0: .2, ...}."""
+    flat = jnp.concatenate([leaf.reshape(-1) for leaf in jax.tree.leaves(owner)])
+    vals, counts = jnp.unique(flat, return_counts=True)
+    return {int(v): float(c) / flat.size for v, c in zip(vals, counts)}

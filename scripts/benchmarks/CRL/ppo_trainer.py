@@ -10,8 +10,10 @@
 #   A-GEM   -> IMPLEMENTED: `agem_project` on `grads` in `update_minibatch`
 #              against a BC gradient on `AGEMMemory`; memory blocks sampled
 #              post-task from a fresh on-policy rollout (`return_agem_samples=True`).
-#   PackNet -> mask/prune over `AgentParams`; note single-head Actor (constant
-#              action dim across mods) vs. PackNet's usual multi-head setup
+#   PackNet -> IMPLEMENTED: boolean `grad_mask` applied to `grads` in
+#              `update_minibatch`; all owner-tree bookkeeping (prune, phase
+#              masks, eval subnetworks) lives in crl_methods.py / the
+#              orchestrator. Single-head Actor is pruned like the torso.
 # =============================================================================
 
 
@@ -228,6 +230,7 @@ def train(
     return_fisher: bool = False,
     agem_memory: "AGEMMemory | None" = None,
     return_agem_samples: bool = False,
+    grad_mask: "AgentParams | None" = None,
 ) -> "AgentParams | tuple[AgentParams, AgentParams] | tuple[AgentParams, AGEMMemory]":
     """Run one single-task PPO training job and return the final agent params.
 
@@ -243,6 +246,11 @@ def train(
     `agem_memory`, if given, projects each minibatch's PPO gradient so it cannot
     conflict with the behavioral-cloning gradient on a batch sampled from the
     past-task memory (A-GEM).
+
+    `grad_mask`, if given, zeroes gradients wherever the boolean mask is False
+    (PackNet phase masks). Freezing is exact: the optimizer is rebuilt fresh per
+    train() call, so always-zero grads keep Adam's moments (and the weights) at
+    exactly their initial values.
 
     `return_fisher=True` / `return_agem_samples=True` (mutually exclusive)
     collect one extra on-policy rollout with the final params after training and
@@ -262,7 +270,9 @@ def train(
     # Hydra nests the alg sub-config under "alg"; flatten to one UPPER_CASE dict.
     config = {k.upper(): v for k, v in config.items() if k != "alg"}
 
-    assert not (ewc_state is not None and agem_memory is not None), "EWC and A-GEM are mutually exclusive"
+    assert (ewc_state is not None) + (agem_memory is not None) + (grad_mask is not None) <= 1, (
+        "EWC, A-GEM and PackNet (grad_mask) are mutually exclusive"
+    )
     assert not (return_fisher and return_agem_samples), "return_fisher and return_agem_samples are mutually exclusive"
 
     if isinstance(config.get("TRAIN_MODS"), list):
@@ -468,6 +478,7 @@ def train(
         storage: Storage,
         ewc_state: "EWCState | None",
         agem_memory: "AGEMMemory | None",
+        grad_mask: "AgentParams | None",
         key: jax.random.PRNGKey,
     ):
         def update_epoch(carry, unused_inp):
@@ -506,6 +517,10 @@ def train(
                     grads, agem_dot, agem_proj = agem_project(grads, mem_grads)
                 else:
                     agem_dot, agem_proj = jnp.array(0.0), jnp.array(0.0)
+                # PackNet: zero grads of weights owned by other tasks (train phase) or
+                # not owned by the current task (finetune phase).
+                if grad_mask is not None:
+                    grads = jax.tree.map(lambda g, m: jnp.where(m, g, 0.0), grads, grad_mask)
                 agent_state = agent_state.apply_gradients(grads=grads)
                 return agent_state, (loss, pg_loss, v_loss, entropy_loss, approx_kl, ewc_pen, agem_dot, agem_proj, grads)
 
@@ -581,6 +596,7 @@ def train(
             storage,
             ewc_state,
             agem_memory,
+            grad_mask,
             key,
         )
         if compile_time is None:
