@@ -42,6 +42,64 @@ def _make_recolored_digits(pattern: str, original_rgb: tuple, new_rgb: tuple) ->
         ))
     return np.stack(padded)
 
+
+def _make_striped_sprite(filename: str, dark_rgb: tuple, band: int = 2) -> np.ndarray:
+    """Apply a horizontal striped texture: recolor every other `band`-tall row-band
+    of the sprite's opaque pixels to dark_rgb (alpha/shape preserved)."""
+    sprite_path = os.path.join(get_base_sprite_dir(), "pong", filename)
+    sprite = np.load(sprite_path).copy()
+    rows = np.arange(sprite.shape[0])
+    dark_rows = (rows // band) % 2 == 1            # every other band, along the tall axis
+    opaque = sprite[..., 3] > 0
+    band_mask = dark_rows[:, None] & opaque
+    sprite[band_mask, :3] = np.array(dark_rgb, dtype=np.uint8)
+    return sprite
+
+
+def _make_shaped_sprite(filename: str, mask_fn) -> np.ndarray:
+    """Subtractive shape restyle: keep only the sprite pixels selected by mask_fn(h, w)
+    and make the rest fully transparent. Color and array footprint are preserved, so
+    the collision hitbox (driven by PLAYER_SIZE, not the pixels) is unchanged."""
+    sprite_path = os.path.join(get_base_sprite_dir(), "pong", filename)
+    sprite = np.load(sprite_path).copy()
+    h, w = sprite.shape[:2]
+    keep = mask_fn(h, w)
+    drop = (~keep) & (sprite[..., 3] > 0)
+    sprite[drop] = 0                                # RGBA -> fully transparent
+    return sprite
+
+
+def _rounded_mask(h: int, w: int) -> np.ndarray:
+    """Rounded rectangle: drop the four corner pixels (narrows the end caps)."""
+    m = np.ones((h, w), dtype=bool)
+    m[0, 0] = m[0, w - 1] = False
+    m[h - 1, 0] = m[h - 1, w - 1] = False
+    return m
+
+
+def _diamond_mask(h: int, w: int) -> np.ndarray:
+    """Diamond/gem: full width across a central band, tapering to the center
+    columns at the top and bottom tips (still spans the full height). The 1.6
+    gain makes the outer columns actually fill in for a narrow (4px) paddle
+    instead of collapsing to a thin bar at the exact center."""
+    cx, cy = (w - 1) / 2.0, (h - 1) / 2.0
+    m = np.zeros((h, w), dtype=bool)
+    for r in range(h):
+        frac = max(0.0, 1.0 - abs(r - cy) / cy)    # 0 at tips, 1 at center
+        half = 0.5 + (cx - 0.5) * min(1.0, frac * 1.6)  # 0.5 (2 cols) .. cx (full)
+        for c in range(w):
+            if abs(c - cx) <= half + 1e-9:
+                m[r, c] = True
+    return m
+
+
+def _hollow_mask(h: int, w: int) -> np.ndarray:
+    """Hollow: keep only the 1px border frame, interior transparent."""
+    m = np.zeros((h, w), dtype=bool)
+    m[0, :] = m[h - 1, :] = True
+    m[:, 0] = m[:, w - 1] = True
+    return m
+
 # --- 1. Individual Mod Plugins ---
 class LazyEnemyMod(JaxAtariInternalModPlugin):
     #conflicts_with = ["random_enemy"]
@@ -302,6 +360,64 @@ class GrayscaleThemeMod(JaxAtariInternalModPlugin):
     }
 
 
+class StripedPaddlesMod(JaxAtariInternalModPlugin):
+    """
+    Restyles both paddles with a horizontal striped texture: alternating bands of
+    the base color and a darker shade of it. Purely visual -- the sprite keeps its
+    4x16 footprint and the collision hitbox (PLAYER_SIZE) is unchanged, so gameplay
+    is untouched. Each paddle keeps its side identity (green player, orange enemy).
+    """
+    _PLAYER_DARK = (46, 93, 46)    # ~half-brightness green
+    _ENEMY_DARK = (106, 65, 37)    # ~half-brightness orange
+
+    asset_overrides = {
+        "player": {
+            "name": "player",
+            "type": "single",
+            "data": _make_striped_sprite("player.npy", _PLAYER_DARK),
+        },
+        "enemy": {
+            "name": "enemy",
+            "type": "single",
+            "data": _make_striped_sprite("enemy.npy", _ENEMY_DARK),
+        },
+    }
+
+
+class _ShapedPaddlesMod(JaxAtariInternalModPlugin):
+    """
+    Base for subtractive paddle-shape restyles. Reshapes the drawn paddle by making
+    some pixels transparent (via _MASK_FN), keeping the color and 4x16 footprint.
+    Purely visual: collision uses the fixed PLAYER_SIZE rectangle, so the ball still
+    bounces off the full 4x16 area even where the sprite is now transparent.
+    """
+    _MASK_FN = staticmethod(lambda h, w: np.ones((h, w), dtype=bool))
+
+    def __init_subclass__(cls, **kwargs):
+        super().__init_subclass__(**kwargs)
+        cls.asset_overrides = {
+            "player": {"name": "player", "type": "single",
+                       "data": _make_shaped_sprite("player.npy", cls._MASK_FN)},
+            "enemy": {"name": "enemy", "type": "single",
+                      "data": _make_shaped_sprite("enemy.npy", cls._MASK_FN)},
+        }
+
+
+class RoundedPaddlesMod(_ShapedPaddlesMod):
+    """Rounded paddles (corner pixels cut). Visual only, hitbox unchanged."""
+    _MASK_FN = staticmethod(_rounded_mask)
+
+
+class DiamondPaddlesMod(_ShapedPaddlesMod):
+    """Diamond-shaped paddles (tapered to the tips). Visual only, hitbox unchanged."""
+    _MASK_FN = staticmethod(_diamond_mask)
+
+
+class HollowPaddlesMod(_ShapedPaddlesMod):
+    """Hollow paddles (outline frame only). Visual only, hitbox unchanged."""
+    _MASK_FN = staticmethod(_hollow_mask)
+
+
 class _BallSpeedMod(JaxAtariInternalModPlugin):
     """
     Base class for ball-speed mods. Reuses the unmodified base ball physics
@@ -375,7 +491,8 @@ class FastPaddleMod(JaxAtariInternalModPlugin):
     _player_step, and it also sets the threshold for the max-speed ball boost in
     _ball_step, so both scale together and the boost mechanic stays consistent.
     """
-    constants_overrides = {"PADDLE_MAX_SPEED": 11.5}
+
+    constants_overrides = {"PADDLE_MAX_SPEED": 19.5}
 
 
 class SlowPaddleMod(JaxAtariInternalModPlugin):
@@ -399,17 +516,21 @@ class RandomServeMod(JaxAtariInternalModPlugin):
     whoever conceded and the vertical component is always +/-1 (a fixed 45 deg).
     This mod instead draws the serve independently at random:
       - direction: ball_vel_x in {-1, +1}  (served left or right, 50/50)
-      - angle:     ball_vel_y in {-2, -1, +1, +2}  (up/down, two steepnesses)
-    giving 8 equally likely serve vectors. Both the opening serve (reset) and
-    every post-goal serve are covered. Integer velocities are kept small so
-    collision detection stays exact (no tunneling).
+      - angle:     ball_vel_y in {-3, -2, +2, +3}  (up/down, steep only)
+    giving 8 equally likely serve vectors. The shallow +/-1 angles are dropped
+    and steeper +/-3 added, so every serve arrives at a harder-to-read height;
+    ball_vel_x stays +/-1 so the opponent keeps full traversal time to reach it
+    (the difficulty is in the angle, not the speed). The steep vertical component
+    only lasts until the first paddle hit, which re-clamps vel_y to +/-2. Both
+    the opening serve (reset) and every post-goal serve are covered; integer
+    velocities stay small so collision detection is exact (no tunneling).
 
     Randomness is drawn from state.key, which the base step() advances every
     frame, so each serve differs. The serve vector is chosen once on the goal
     frame and held through the 60-frame respawn pause before release.
     """
     _VEL_X_CHOICES = jnp.array([-1, 1], dtype=jnp.int32)
-    _VEL_Y_CHOICES = jnp.array([-2, -1, 1, 2], dtype=jnp.int32)
+    _VEL_Y_CHOICES = jnp.array([-3, -2, 2, 3], dtype=jnp.int32)
 
     @partial(jax.jit, static_argnums=(0,))
     def reset(self, key: chex.PRNGKey = jax.random.PRNGKey(42)):
@@ -450,17 +571,23 @@ def _nudge_ball(state: PongState, dx: int, dy: int, buffer: int) -> PongState:
 
 class BallGravityMod(JaxAtariPostStepModPlugin):
     """
-    Pulls the ball toward the floor by 1 px every _BUFFER steps.
-
-    In Pong y increases downward (top wall y=24, bottom wall y=194), so the pull
-    is +y. The downward bias curves the ball's trajectory and, over a rally,
-    steadily flattens its bounce angles toward the bottom.
+    Pulls the ball toward the floor at _NUM/_DEN px per frame (default 3/8 =
+    0.375). The pull is delivered as evenly-spaced +1 nudges (a Bresenham
+    schedule), never a single +2 jump: this is the integer-safe way to get a
+    fractional (~1.5-per-4-frames) drift. Stronger than a 1-per-4 (0.25) pull,
+    but the smooth +1 steps keep the drift gentle enough that the enemy paddle
+    can still track the ball -- unlike a 0.5 (2-per-4) pull, which sinks the ball
+    faster than the enemy can follow. y increases downward, so the pull is +y.
     """
-    _BUFFER = 4
+    _NUM = 3
+    _DEN = 8
 
     @partial(jax.jit, static_argnums=(0,))
     def run(self, prev_state: PongState, new_state: PongState) -> PongState:
-        return _nudge_ball(new_state, 0, 1, self._BUFFER)
+        # Bresenham: dy is 0 or 1 each frame, summing to _NUM over every _DEN frames.
+        sc = new_state.step_counter
+        dy = ((sc + 1) * self._NUM) // self._DEN - (sc * self._NUM) // self._DEN
+        return new_state.replace(ball_y=new_state.ball_y + dy.astype(new_state.ball_y.dtype))
 
 
 class BallDriftMod(JaxAtariPostStepModPlugin):

@@ -2,7 +2,7 @@ import os
 from functools import partial
 import jax
 from jaxatari.modification import JaxAtariModController
-from jaxatari.games.mods.pong.pong_mod_plugins import LazyEnemyMod, RandomEnemyMod, AlwaysZeroScoreMod, LinearMovementMod, ShiftPlayerMod, ShiftEnemyMod, NoFireMod, ChangeBackgroundColorMod, ChangePlayerColorMod, SwapPaddleColorsMod, ChangeBallColorMod, ChangeScoreColorMod, GrayscaleThemeMod, FastBallMod, SlowBallMod, FastPaddleMod, SlowPaddleMod, RandomServeMod, BallGravityMod, BallDriftMod, ScaleRewardMod, RewardPerHitMod, TimePenaltyMod, AsymmetricRewardMod, InvertedRewardMod, ZoneScoringMod, SparseScoringMod, MissPenaltyMod, _RenderNoiseMod, RenderNoise20Mod, RenderNoise40Mod, RenderNoise60Mod, RenderNoise80Mod, apply_render_noise, BallSpeedX2Mod, BallSpeedX3Mod, BallSpeedX4Mod, BallSpeedX5Mod
+from jaxatari.games.mods.pong.pong_mod_plugins import LazyEnemyMod, RandomEnemyMod, AlwaysZeroScoreMod, LinearMovementMod, ShiftPlayerMod, ShiftEnemyMod, NoFireMod, ChangeBackgroundColorMod, ChangePlayerColorMod, SwapPaddleColorsMod, ChangeBallColorMod, ChangeScoreColorMod, GrayscaleThemeMod, StripedPaddlesMod, RoundedPaddlesMod, DiamondPaddlesMod, HollowPaddlesMod, FastBallMod, SlowBallMod, FastPaddleMod, SlowPaddleMod, RandomServeMod, BallGravityMod, BallDriftMod, ScaleRewardMod, RewardPerHitMod, TimePenaltyMod, AsymmetricRewardMod, InvertedRewardMod, ZoneScoringMod, SparseScoringMod, MissPenaltyMod, _RenderNoiseMod, RenderNoise20Mod, RenderNoise40Mod, RenderNoise60Mod, RenderNoise80Mod, apply_render_noise, BallSpeedX2Mod, BallSpeedX3Mod, BallSpeedX4Mod, BallSpeedX5Mod
 
 class PongEnvMod(JaxAtariModController):    
     """
@@ -26,16 +26,20 @@ class PongEnvMod(JaxAtariModController):
         "change_ball_color": ChangeBallColorMod,
         "change_score_color": ChangeScoreColorMod,
         "grayscale_theme": GrayscaleThemeMod,
+        "striped_paddles": StripedPaddlesMod,
+        "rounded_paddles": RoundedPaddlesMod,
+        "diamond_paddles": DiamondPaddlesMod,
+        "hollow_paddles": HollowPaddlesMod,
 
         # Dynamics
-        "fast_ball": FastBallMod,
+        "fast_ball": FastBallMod, #use BallSpeedX2 instead!
         "slow_ball": SlowBallMod,
         "fast_paddle": FastPaddleMod,
         "slow_paddle": SlowPaddleMod,
-        "random_serve": RandomServeMod,
-        "ball_gravity": BallGravityMod,
+        "random_serve": RandomServeMod, #can we make it harder?
+        "ball_gravity": BallGravityMod, #can we make this harder, currently we nudge by 1, nuding by 2 makes it too easy since enemy cant reach. can we do 1.5 -> no it breaks?
         "ball_drift": BallDriftMod, # does not work well -> just makes ball faster
-        "linear_movement": LinearMovementMod,
+        "linear_movement": LinearMovementMod, # Basically no acceleration
         "lazy_enemy": LazyEnemyMod,
 
         # Reward
