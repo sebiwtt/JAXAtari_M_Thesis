@@ -23,7 +23,12 @@
 
 import json
 import os
+import sys
 from functools import partial
+from pathlib import Path
+
+# Lives in tools/, but imports the core pipeline modules from the CRL dir above.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import flax
 import hydra
@@ -267,7 +272,7 @@ def run_difficulty(config: dict) -> None:
         wandb.finish()
 
 
-@hydra.main(version_base=None, config_path="./config", config_name="config")
+@hydra.main(version_base=None, config_path="../config", config_name="config")
 def main(config):
     config = OmegaConf.to_container(config, resolve=True)
     merged_config = {**config, **config.get("alg", {})}

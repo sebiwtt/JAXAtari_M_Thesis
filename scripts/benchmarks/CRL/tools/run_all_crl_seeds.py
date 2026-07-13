@@ -8,8 +8,8 @@
 # in the seed-to-seed variance).
 #
 # Usage:
-#   python run_all_crl_seeds.py --gpus 0,1,2,3 --seeds 0,1,2,3,4
-#   python run_all_crl_seeds.py --gpus 0 --seeds 0,1,2 -- alg.TOTAL_TIMESTEPS=1000000
+#   python tools/run_all_crl_seeds.py --gpus 0,1,2,3 --seeds 0,1,2,3,4
+#   python tools/run_all_crl_seeds.py --gpus 0 --seeds 0,1,2 -- alg.TOTAL_TIMESTEPS=1000000
 # (anything after the flags above is forwarded verbatim to ppo_crl_continual.py)
 # =============================================================================
 

@@ -33,7 +33,7 @@ from jaxatari import spaces
 
 from envs import make_env
 from networks import Actor, AgentParams, Critic, MLP_Network, Network
-from video_utils import generate_final_video, save_obs_debug_frame
+from tools.video_utils import generate_final_video, save_obs_debug_frame
 
 from rtpt import RTPT
 

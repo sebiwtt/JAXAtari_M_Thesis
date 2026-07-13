@@ -12,9 +12,9 @@
 #   4. Aggregate metrics     final avg performance, avg retention, backward transfer.
 #
 # Usage:
-#   python visualize_matrix.py runs/pong_ppo_crl_continual_pixel_1
-#   python visualize_matrix.py runs/<run> --out fig.png        # custom output path
-#   python visualize_matrix.py runs/<run> --show               # also open a window
+#   python tools/visualize_matrix.py runs/pong_ppo_crl_continual_pixel_1
+#   python tools/visualize_matrix.py runs/<run> --out fig.png        # custom output path
+#   python tools/visualize_matrix.py runs/<run> --show               # also open a window
 # =============================================================================
 
 from __future__ import annotations
