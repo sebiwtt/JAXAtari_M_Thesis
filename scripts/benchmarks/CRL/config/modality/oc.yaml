@@ -1,0 +1,7 @@
+# @package _global_
+# Object-centric observations (MLP_Network torso). Cheap enough for a large env
+# batch and the full 100M-steps-per-task budget.
+PIXEL_BASED: False
+TOTAL_TIMESTEPS: 100000000    # per task - identical budget for every task
+NUM_ENVS: 8192                # parallel env instances (vmapped), the dominant memory cost
+NUM_MINIBATCHES: 4096         # BATCH_SIZE (NUM_ENVS * NUM_STEPS) split into this many minibatches

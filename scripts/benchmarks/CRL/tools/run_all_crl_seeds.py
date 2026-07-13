@@ -8,8 +8,8 @@
 # in the seed-to-seed variance).
 #
 # Usage:
-#   python tools/run_all_crl_seeds.py --gpus 0,1,2,3 --seeds 0,1,2,3,4
-#   python tools/run_all_crl_seeds.py --gpus 0 --seeds 0,1,2 -- alg.TOTAL_TIMESTEPS=1000000
+#   python tools/run_all_crl_seeds.py --gpus 0,1,2,3 --seeds 0,1,2,3,4 --sequence pong_dyn4 --method ewc --modality oc
+#   python tools/run_all_crl_seeds.py --gpus 0 --seeds 0,1,2 -- TOTAL_TIMESTEPS=1000000
 # (anything after the flags above is forwarded verbatim to ppo_crl_continual.py)
 # =============================================================================
 
@@ -26,7 +26,7 @@ DEFAULT_SEEDS = [0, 1, 2]
 WORKERS_PER_GPU = 1
 
 
-def worker(gpu_id: str, worker_id: int, task_queue: "queue.Queue", alg_config: str, extra_args: list):
+def worker(gpu_id: str, worker_id: int, task_queue: "queue.Queue", composition: list, extra_args: list):
     """Continuously pull seeds off the queue and run one full continual sweep per seed."""
     while not task_queue.empty():
         try:
@@ -34,14 +34,14 @@ def worker(gpu_id: str, worker_id: int, task_queue: "queue.Queue", alg_config: s
         except queue.Empty:
             break
 
-        print(f"[GPU {gpu_id} | Worker {worker_id}] Starting seed {seed} (alg={alg_config})...")
+        print(f"[GPU {gpu_id} | Worker {worker_id}] Starting seed {seed} ({' '.join(composition)})...")
 
         env_vars = os.environ.copy()
         env_vars["CUDA_VISIBLE_DEVICES"] = gpu_id
 
         cmd = [
             "uv", "run", "scripts/benchmarks/CRL/ppo_crl_continual.py",
-            f"+alg={alg_config}",
+            *composition,
             f"SEED={seed}",
         ] + extra_args
 
@@ -65,7 +65,9 @@ def main():
         default=",".join(str(s) for s in DEFAULT_SEEDS),
         help="Comma-separated seed list, e.g. '0,1,2,3,4'.",
     )
-    parser.add_argument("--alg", type=str, default="ppo_crl_continual", help="Hydra alg config name (config/alg/<name>.yaml).")
+    parser.add_argument("--sequence", type=str, default="pong_dyn4", help="Hydra sequence group (config/sequence/<name>.yaml).")
+    parser.add_argument("--method", type=str, default="ft", help="Hydra method group (config/method/<name>.yaml): ft, ewc, agem, packnet.")
+    parser.add_argument("--modality", type=str, default="oc", help="Hydra modality group (config/modality/<name>.yaml): oc, pixel.")
 
     # Anything unrecognized is forwarded verbatim to ppo_crl_continual.py.
     args, extra_args = parser.parse_known_args()
@@ -90,7 +92,8 @@ def main():
     with ThreadPoolExecutor(max_workers=total_workers) as executor:
         for gpu_id in gpus:
             for worker_id in range(WORKERS_PER_GPU):
-                executor.submit(worker, gpu_id, worker_id, task_queue, args.alg, extra_args)
+                composition = [f"sequence={args.sequence}", f"method={args.method}", f"modality={args.modality}"]
+                executor.submit(worker, gpu_id, worker_id, task_queue, composition, extra_args)
 
     task_queue.join()
     print("All seed runs finished. Aggregate them with aggregate_crl_seeds.py, e.g.:")

@@ -1,0 +1,8 @@
+# @package _global_
+# Pixel observations (Nature-CNN torso). Rendering + conv cost force a smaller
+# env batch and budget than modality=oc. The pixel-only flags
+# (NATIVE_DOWNSCALING / SMOOTH_IMAGE / GRAYSCALE) live in config.yaml.
+PIXEL_BASED: True
+TOTAL_TIMESTEPS: 10000000     # per task - identical budget for every task
+NUM_ENVS: 512                 # parallel env instances (vmapped), the dominant memory cost
+NUM_MINIBATCHES: 256          # BATCH_SIZE (NUM_ENVS * NUM_STEPS) split into this many minibatches

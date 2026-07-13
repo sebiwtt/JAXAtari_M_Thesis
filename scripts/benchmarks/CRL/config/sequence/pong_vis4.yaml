@@ -1,0 +1,11 @@
+# @package _global_
+# Ordered single-mod tasks; index 0 must be the base task (no mods). Mod keys are
+# from src/jaxatari/games/mods/pong_mods.py. At most one mod per task.
+ENV_ID: pong
+SEQUENCE: vis4
+TASK_MODS:
+  - []
+  - ["change_ball_color"]
+  - ["change_score_color"]
+  - ["swap_paddle_colors"]
+  - ["change_background_color"]

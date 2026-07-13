@@ -275,9 +275,8 @@ def run_difficulty(config: dict) -> None:
 @hydra.main(version_base=None, config_path="../config", config_name="config")
 def main(config):
     config = OmegaConf.to_container(config, resolve=True)
-    merged_config = {**config, **config.get("alg", {})}
     print("Config:\n", OmegaConf.to_yaml(OmegaConf.create(config)))
-    run_difficulty(merged_config)
+    run_difficulty(config)
 
 
 if __name__ == "__main__":

@@ -1,3 +1,24 @@
+# =============================================================================
+# CRL benchmark config - composed from three orthogonal groups:
+#
+#   sequence/  - which game + ordered task mods   (pong_dyn4, pong_vis4, ...)
+#   method/    - which CL method + its hyperparams (ft, ewc, agem, packnet)
+#   modality/  - observation pipeline + its budget (oc, pixel)
+#
+# A run is a combination, e.g.:
+#   python ppo_crl_continual.py sequence=pong_vis4 method=ewc modality=pixel
+# Any single key can still be overridden on top:
+#   python ppo_crl_continual.py method=ewc EWC_COEF=1000 SEED=3
+#
+# This file holds everything shared across all combinations.
+# =============================================================================
+
+defaults:
+  - _self_
+  - sequence: pong_dyn4
+  - method: ft
+  - modality: oc
+
 # experiment params
 NAME_INITIALS: "SW"
 SEED: 0
@@ -6,3 +27,43 @@ SEED: 0
 ENTITY: "sebastian-wette-tu-darmstadt"
 # PROJECT: "debug"
 PROJECT: "Thesis-Test"
+
+# Derived from the composition (e.g. "ewc_dyn4"); the full run name becomes
+# {ENV_ID}_{EXP_NAME}_{oc|pixel}_{SEED}. Override explicitly for one-off runs.
+EXP_NAME: ${CL_METHOD}_${SEQUENCE}
+
+TRACK: True                    # master wandb switch; also gates CAPTURE_VIDEO
+CAPTURE_VIDEO: False           # upload one final-rollout clip per task to wandb
+SAVE_OBS_FRAMES: False         # dump one PNG per task to obs_frames/ of the real post-wrapper rollout obs (debug only)
+
+# Avoids a fake 0 floor in charts-{task}/avg_episodic_return right after each task's
+# env reset, before any episode has completed (NaN shows as a gap instead).
+NAN_UNTIL_FIRST_EPISODE: True
+
+# Pixel-only observation flags (ignored for modality=oc).
+NATIVE_DOWNSCALING: True       # native low-res render instead of resizing full-res
+SMOOTH_IMAGE: False            # anti-alias when downscaling
+GRAYSCALE: False               # True = grayscale observations; False = full RGB
+
+# Retention-matrix eval (fills R[i,j] for j <= i after each task). EVAL_SEED is fixed
+# across every cell so differences reflect params, not eval noise.
+EVAL_EPISODES: 15              # parallel eval episodes per matrix cell
+EVAL_SEED: 1
+
+# On: also fill j > i (forward transfer to tasks not yet trained on). Roughly doubles
+# the number of eval() calls.
+EVAL_FULL_MATRIX: False
+
+NUM_STEPS: 128                 # rollout length per PPO iteration, per env
+
+# Standard PPO hyperparameters - shouldn't normally need changing per task/mod.
+LEARNING_RATE: 0.00025
+ANNEAL_LR: True                # linear decay to 0 over NUM_ITERATIONS, reset fresh each task
+GAMMA: 0.99                    # discount factor
+GAE_LAMBDA: 0.95               # GAE bias/variance trade-off
+UPDATE_EPOCHS: 2               # gradient passes over the same rollout batch per iteration
+NORM_ADV: True                 # normalize advantages within each minibatch
+CLIP_COEF: 0.1                 # PPO policy-ratio clip range
+ENT_COEF: 0.01                 # entropy bonus weight
+VF_COEF: 0.5                   # value-loss weight in the combined loss
+MAX_GRAD_NORM: 0.5             # global gradient-norm clip, before the Adam step

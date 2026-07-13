@@ -304,9 +304,8 @@ def run_continual(config: dict) -> None:
 @hydra.main(version_base=None, config_path="./config", config_name="config")
 def main(config):
     config = OmegaConf.to_container(config, resolve=True)
-    merged_config = {**config, **config.get("alg", {})}
     print("Config:\n", OmegaConf.to_yaml(OmegaConf.create(config)))
-    run_continual(merged_config)
+    run_continual(config)
 
 
 if __name__ == "__main__":

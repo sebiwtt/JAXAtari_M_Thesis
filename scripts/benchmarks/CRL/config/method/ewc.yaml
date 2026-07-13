@@ -1,0 +1,11 @@
+# @package _global_
+# Elastic Weight Consolidation (Kirkpatrick et al. 2017) - continual/ewc.py
+CL_METHOD: ewc
+EWC_COEF: 100.0               # lambda in 0.5*lambda*mean_i F_i (theta_i - theta*_i)^2; with
+                              # EWC_NORMALIZE_FISHER: True, sweep roughly {1, 10, 100, 1e3, 1e4}
+EWC_MODE: multi              # "last" = newest task's Fisher only; "multi" = sum of all Fishers
+                              # (standard EWC, shared anchor); "online" = EMA (MEAL default)
+EWC_DECAY: 0.9                # online mode only: F <- decay*F_old + (1-decay)*F_new
+EWC_NORMALIZE_FISHER: True    # rescale each Fisher to mean|F|=1 so EWC_COEF is scale-independent
+EWC_FISHER_SAMPLES: 65536     # on-policy (s,a) samples for the diagonal Fisher (capped at NUM_ENVS*NUM_STEPS)
+EWC_FISHER_CHUNK: 128         # per-sample grads vmapped in chunks of this size (peak memory: chunk x n_params)

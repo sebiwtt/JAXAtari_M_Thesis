@@ -1,0 +1,8 @@
+# @package _global_
+# Averaged Gradient Episodic Memory (Chaudhry et al. 2019) - continual/agem.py
+CL_METHOD: agem
+AGEM_MEMORY_PER_TASK: 4096    # transitions stored per finished task (from a final-policy
+                              # rollout); memory grows linearly with tasks. Pixel obs are
+                              # uint8, ~85KB each - consider 2048 for modality=pixel.
+AGEM_SAMPLE_SIZE: 256         # memory batch per minibatch for the reference (BC) gradient;
+                              # adds roughly one extra fwd+bwd of this size per minibatch
