@@ -173,6 +173,10 @@ class FreewayState:
     cooldown: chex.Array  # Cooldown after collision
     walking_frames: chex.Array
     game_over: chex.Array
+    # True if the chicken has been hit at any point since the last spawn (reset or
+    # after scoring). Non-behavioral bookkeeping; used only by reward mods
+    # (e.g. clean_crossing). Cleared when the chicken scores.
+    hit_since_reset: chex.Array = None
 
 @struct.dataclass
 class EntityPosition:
@@ -246,6 +250,7 @@ class JaxFreeway(JaxEnvironment[FreewayState, FreewayObservation, FreewayInfo, F
             cooldown=jnp.array(0, dtype=jnp.int32),
             walking_frames=jnp.array(0, dtype=jnp.int32),
             game_over=jnp.array(False, dtype=jnp.bool_),
+            hit_since_reset=jnp.array(False, dtype=jnp.bool_),
         )
 
         return self._get_observation(state), state
@@ -379,6 +384,13 @@ class JaxFreeway(JaxEnvironment[FreewayState, FreewayObservation, FreewayInfo, F
             new_cooldown,
         )
 
+        # Track whether the chicken has been hit during the current crossing
+        # (accumulates hits, cleared when scoring). Used by reward mods only.
+        new_hit_since_reset = jnp.logical_and(
+            jnp.logical_or(state.hit_since_reset, any_collision),
+            jnp.logical_not(scored),
+        )
+
         # Update time
         new_time = (state.time + 1).astype(jnp.int32)
 
@@ -398,6 +410,7 @@ class JaxFreeway(JaxEnvironment[FreewayState, FreewayObservation, FreewayInfo, F
             cooldown=new_cooldown,
             walking_frames=new_walking_frames.astype(jnp.int32),
             game_over=game_over,
+            hit_since_reset=new_hit_since_reset,
         )
         done = self._get_done(new_state)
         env_reward = self._get_reward(state, new_state)
