@@ -1003,10 +1003,14 @@ class BreakoutRenderer(JAXGameRenderer):
             {'name': 'block_colors', 'type': 'procedural', 'data': procedural_sprites['block_colors']},
             {'name': 'bottom_bar', 'type': 'procedural', 'data': procedural_sprites['bottom_bar']},
         ])
-        if 'player' in procedural_sprites:
-            asset_config.append({'name': 'player', 'type': 'procedural', 'data': procedural_sprites['player']})
-        else:
-            asset_config.append({'name': 'player', 'type': 'single', 'file': 'player.npy'})
+        # A mod may supply its own 'player' asset (e.g. a reshaped paddle) via the
+        # (possibly modded) ASSET_CONFIG; only fall back to the default paddle
+        # sprite when none was provided, so such overrides are not clobbered.
+        if not any(a.get('name') == 'player' for a in asset_config):
+            if 'player' in procedural_sprites:
+                asset_config.append({'name': 'player', 'type': 'procedural', 'data': procedural_sprites['player']})
+            else:
+                asset_config.append({'name': 'player', 'type': 'single', 'file': 'player.npy'})
         return asset_config
 
     @partial(jax.jit, static_argnums=(0,))

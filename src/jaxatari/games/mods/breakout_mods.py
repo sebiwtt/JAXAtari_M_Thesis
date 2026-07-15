@@ -9,6 +9,21 @@ from jaxatari.games.mods.breakout.breakout_mod_plugins import (
     BallColorMod,
     BlockColorMod,
     PlayerColorMod,
+    ChangePaddleColorMod,
+    ChangeBallColorMod,
+    ChangeBackgroundColorMod,
+    SwapScoreColorMod,
+    GreyscaleThemeMod,
+    RoundPaddleMod,
+    BallLossPenaltyMod,
+    FlattenRowValuesMod,
+    EveryKContactsMod,
+    BottomRowFirstMod,
+    FasterBallMod,
+    SlowerBallMod,
+    FasterPaddleMod,
+    SlowerPaddleMod,
+    RandomServeMod,
 )
 
 class BreakoutEnvMod(JaxAtariModController):
@@ -18,14 +33,38 @@ class BreakoutEnvMod(JaxAtariModController):
     """
 
     REGISTRY = {
-        "speed_mode": SpeedModeMod,
-        "small_paddle": SmallPaddleMod,
-        "big_paddle": BigPaddleMod,
-        "ball_drift": BallDriftMod,
-        "ball_gravity": BallGravityMod,
+        # Visual
+        "change_paddle_color": ChangePaddleColorMod,
+        "change_ball_color": ChangeBallColorMod,
+        "change_background_color": ChangeBackgroundColorMod,
+        "swap_score_color": SwapScoreColorMod,
+        "greyscale_theme": GreyscaleThemeMod,
+        "round_paddle": RoundPaddleMod,
+        # Vis. mods that were already available
         "ball_color": BallColorMod,
         "block_color": BlockColorMod,
         "player_color": PlayerColorMod,
+
+        # Dynamics
+        "faster_ball": FasterBallMod,
+        "slower_ball": SlowerBallMod,
+        "faster_paddle": FasterPaddleMod,
+        "slower_paddle": SlowerPaddleMod,
+        "random_serve": RandomServeMod,
+        "ball_drift": BallDriftMod,
+        # Dyn. mods that were already available
+        "ball_gravity": BallGravityMod,
+
+        # Reward
+        "ball_loss_penalty": BallLossPenaltyMod,
+        "flatten_row_values": FlattenRowValuesMod,
+        "every_k_contacts": EveryKContactsMod,
+        "bottom_row_first": BottomRowFirstMod,
+
+        # Misc.
+        "small_paddle": SmallPaddleMod,
+        "big_paddle": BigPaddleMod,
+        
     }
 
     _mod_sprite_dir = os.path.join(os.path.dirname(__file__), "breakout", "sprites")
