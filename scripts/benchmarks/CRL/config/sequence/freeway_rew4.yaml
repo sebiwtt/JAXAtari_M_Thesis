@@ -1,0 +1,14 @@
+# @package _global_
+# Ordered single-mod tasks; index 0 must be the base task (no mods). Mod keys are
+# from src/jaxatari/games/mods/freeway_mods.py. At most one mod per task.
+ENV_ID: freeway
+SEQUENCE: rew4
+TASK_MODS:
+  - []
+  - ["reward_per_lane"]
+  - ["collision_penalty"]
+  - ["reward_middle_lane"]
+  - ["clean_crossing"]
+
+# --- More Options ---
+# 

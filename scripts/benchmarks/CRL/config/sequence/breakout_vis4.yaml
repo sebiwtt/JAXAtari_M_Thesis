@@ -1,0 +1,16 @@
+# @package _global_
+# Ordered single-mod tasks; index 0 must be the base task (no mods). Mod keys are
+# from src/jaxatari/games/mods/breakout_mods.py. At most one mod per task.
+ENV_ID: breakout
+SEQUENCE: vis4
+TASK_MODS:
+  - []
+  - ["change_paddle_color"]
+  - ["change_ball_color"]
+  - ["change_background_color"]
+  - ["swap_score_color"]
+
+# --- More Options ---
+# greyscale_theme
+# round_paddle
+# block_color

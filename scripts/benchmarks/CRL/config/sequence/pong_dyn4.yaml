@@ -9,3 +9,9 @@ TASK_MODS:
   - ["fast_paddle"]
   - ["random_serve"]
   - ["ball_gravity"]
+
+# --- More Options ---
+# slow_ball
+# slow_paddle
+# linear_movement
+# lazy_enemy

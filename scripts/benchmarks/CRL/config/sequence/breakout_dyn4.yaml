@@ -1,0 +1,15 @@
+# @package _global_
+# Ordered single-mod tasks; index 0 must be the base task (no mods). Mod keys are
+# from src/jaxatari/games/mods/breakout_mods.py. At most one mod per task.
+ENV_ID: breakout
+SEQUENCE: dyn4
+TASK_MODS:
+  - []
+  - ["faster_ball"]
+  - ["faster_paddle"]
+  - ["random_serve"]
+  - ["ball_drift"]
+
+# --- More Options ---
+# slower_ball
+# slower_paddle

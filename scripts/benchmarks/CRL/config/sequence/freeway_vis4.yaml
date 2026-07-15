@@ -1,0 +1,18 @@
+# @package _global_
+# Ordered single-mod tasks; index 0 must be the base task (no mods). Mod keys are
+# from src/jaxatari/games/mods/freeway_mods.py. At most one mod per task.
+ENV_ID: freeway
+SEQUENCE: vis4
+TASK_MODS:
+  - []
+  - ["change_player_color"]
+  - ["change_car_color"]
+  - ["change_road_color"]
+  - ["change_score_color"]
+
+# --- More Options ---
+# black_cars
+# bikes
+# frog
+# new_lane_colors
+        

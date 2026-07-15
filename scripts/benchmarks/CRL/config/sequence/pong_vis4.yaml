@@ -9,3 +9,10 @@ TASK_MODS:
   - ["change_score_color"]
   - ["swap_paddle_colors"]
   - ["change_background_color"]
+
+# --- More Options ---
+# grayscale_theme
+# striped_paddles
+# rounded_paddles
+# diamond_paddles
+# hollow_paddles

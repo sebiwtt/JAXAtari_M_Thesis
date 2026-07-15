@@ -1,0 +1,14 @@
+# @package _global_
+# Ordered single-mod tasks; index 0 must be the base task (no mods). Mod keys are
+# from src/jaxatari/games/mods/breakout_mods.py. At most one mod per task.
+ENV_ID: breakout
+SEQUENCE: rew4
+TASK_MODS:
+  - []
+  - ["ball_loss_penalty"]
+  - ["flatten_row_values"]
+  - ["every_k_contacts"]
+  - ["bottom_row_first"]
+
+# --- More Options ---
+# 
