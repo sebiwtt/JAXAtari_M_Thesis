@@ -1,0 +1,16 @@
+# @package _global_
+# Ordered single-mod tasks; index 0 must be the base task (no mods). Mod keys are
+# from src/jaxatari/games/mods/asteroids_mods.py. At most one mod per task.
+ENV_ID: asteroids
+SEQUENCE: vis4
+TASK_MODS:
+  - []
+  - ["change_ship_color"]
+  - ["change_asteroid_color"]
+  - ["change_background_color"]
+  - ["no_flicker"]
+
+# --- More Options ---
+# grayscale_theme
+# change_score_color
+# matrix_theme

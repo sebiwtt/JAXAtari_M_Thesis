@@ -1,0 +1,17 @@
+# @package _global_
+# Ordered single-mod tasks; index 0 must be the base task (no mods). Mod keys are
+# from src/jaxatari/games/mods/asteroids_mods.py. At most one mod per task.
+ENV_ID: asteroids
+SEQUENCE: dyn4
+TASK_MODS:
+  - []
+  - ["faster_asteroids"]
+  - ["faster_ship"]
+  - ["randomize_asteroid_spawn"]
+  - ["ship_inertia"]
+
+# --- More Options ---
+# slower_asteroids
+# slower_ship
+# dont_shoot
+# instant_turn

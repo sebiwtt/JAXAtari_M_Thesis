@@ -1,0 +1,15 @@
+# @package _global_
+# Ordered single-mod tasks; index 0 must be the base task (no mods). Mod keys are
+# from src/jaxatari/games/mods/asteroids_mods.py. At most one mod per task.
+ENV_ID: asteroids
+SEQUENCE: rew4
+TASK_MODS:
+  - []
+  - ["life_loss_penalty"]
+  - ["flatten_asteroid_values"]
+  - ["small_asteroid_only"]
+  - ["survival_reward"]
+
+# --- More Options ---
+# every_k_kills
+# wave_clear_bonus

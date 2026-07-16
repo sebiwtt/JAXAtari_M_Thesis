@@ -290,6 +290,22 @@ class AsteroidsState(struct.PyTreeNode):
     step_counter: chex.Array
     rng_key: chex.PRNGKey
 
+    # Cumulative count of asteroid-destroy transitions (any size) since the game
+    # started. Non-behavioral bookkeeping; nothing in the base game reads it.
+    # Used only by reward mods (e.g. every_k_kills) that need an exact kill count,
+    # which can't be derived reliably from `score` alone (destroy events pay
+    # different points by size, so simultaneous multi-kill steps can produce
+    # ambiguous score deltas).
+    kill_count: chex.Array = None
+
+    # Cumulative count of stage (wave) clears since the game started.
+    # Non-behavioral bookkeeping; nothing in the base game reads it. Used only
+    # by reward mods (e.g. wave_clear_bonus) that need to detect a genuine
+    # stage clear, which can't be reconstructed reliably from asteroid counts
+    # alone (a normal large-asteroid split can coincidentally also raise the
+    # active count to NEW_ASTEROIDS_COUNT).
+    wave_count: chex.Array = None
+
 class AsteroidsObservation(struct.PyTreeNode):
     player: ObjectObservation # (x, y, width, height, active, visual_id, orientation)
     missiles: ObjectObservation  # shape (2, 6) - 2 missiles, each with (x, y, width, height, rotation, active)
@@ -1006,7 +1022,9 @@ class JaxAsteroids(JaxEnvironment[AsteroidsState, AsteroidsObservation, Asteroid
 
             side_step_counter=jnp.array(115).astype(jnp.int32),
             step_counter=jnp.array(0).astype(jnp.int32),
-            rng_key = key
+            rng_key = key,
+            kill_count=jnp.array(0).astype(jnp.int32),
+            wave_count=jnp.array(0).astype(jnp.int32),
         )
         initial_obs = self._get_observation(state)
 
@@ -1057,6 +1075,20 @@ class JaxAsteroids(JaxEnvironment[AsteroidsState, AsteroidsObservation, Asteroid
             lambda: score - self.consts.MAX_SCORE,
             lambda: score
         )
+
+        # count asteroid-destroy transitions this step (any size), snapshotted
+        # right after collision resolution and before a possible new_stage
+        # respawn, so stage-clear spawns are never miscounted as destroys.
+        # Non-behavioral: only consumed by reward mods (e.g. every_k_kills).
+        _prev_sizes_for_kills = state.asteroid_states[:, 3]
+        _post_collision_sizes = asteroid_states[:, 3]
+        _is_destroy_transition = (
+            (((_prev_sizes_for_kills == self.consts.LARGE_1) | (_prev_sizes_for_kills == self.consts.LARGE_2))
+             & (_post_collision_sizes == self.consts.MEDIUM))
+            | ((_prev_sizes_for_kills == self.consts.MEDIUM) & (_post_collision_sizes == self.consts.SMALL))
+            | ((_prev_sizes_for_kills == self.consts.SMALL) & (_post_collision_sizes == self.consts.INACTIVE))
+        )
+        kill_count = state.kill_count + jnp.sum(_is_destroy_transition.astype(jnp.int32))
 
         # set missiles to inactive if they hit an asteroid
         missile_states = jax.lax.cond(
@@ -1114,11 +1146,18 @@ class JaxAsteroids(JaxEnvironment[AsteroidsState, AsteroidsObservation, Asteroid
         )
 
         # enter new stage if there are no active asteroids left
+        _stage_cleared = jnp.count_nonzero(asteroid_states, 0)[3] <= 0
         asteroid_states, rng_key = jax.lax.cond(
-            jnp.count_nonzero(asteroid_states, 0)[3] <= 0,
+            _stage_cleared,
             lambda: self.new_stage(player_x, player_y, rng_key),
             lambda: (asteroid_states, rng_key)
         )
+        # Cumulative count of stage (wave) clears. Non-behavioral bookkeeping,
+        # captured at the exact real trigger condition above (rather than
+        # reconstructed from before/after asteroid counts, which is ambiguous:
+        # a normal large-asteroid split can coincidentally also raise the active
+        # count to NEW_ASTEROIDS_COUNT). Used only by reward mods.
+        wave_count = state.wave_count + _stage_cleared.astype(jnp.int32)
 
         # update step counter (reset if lives are zero)
         step_counter = jax.lax.cond(
@@ -1147,7 +1186,9 @@ class JaxAsteroids(JaxEnvironment[AsteroidsState, AsteroidsObservation, Asteroid
 
             side_step_counter=side_step_counter,
             step_counter=step_counter,
-            rng_key=rng_key
+            rng_key=rng_key,
+            kill_count=kill_count,
+            wave_count=wave_count,
         )
 
         done = self._get_done(new_state)

@@ -2,7 +2,7 @@ import jax.numpy as jnp
 import numpy as np
 import os
 from jaxatari.modification import JaxAtariPostStepModPlugin, JaxAtariInternalModPlugin
-from jaxatari.games.jax_asteroids import AsteroidsState
+from jaxatari.games.jax_asteroids import AsteroidsState, JaxAsteroids
 from jaxatari.environment import JAXAtariAction as Action
 import jax.lax
 from functools import partial
@@ -97,6 +97,377 @@ def _get_digits_recolored() -> jnp.ndarray:
         padded_digits.append(padded_digit)
     return jnp.stack([jnp.array(p) for p in padded_digits])
 
+
+# --- "change_X_color" visual mods (parallels to Pong/Freeway/Breakout) -------
+# Parametrized versions of the group/digit helpers above, so change_* mods can
+# recolor to any target without touching MatrixMod's hardcoded green versions.
+_PLAYER_FILES = [f'player_pos{i}.npy' for i in range(16)] + [f'death_player{i}.npy' for i in range(3)]
+_ASTEROID_FILES = [
+    f'asteroid_{size}_{color}.npy'
+    for size in ['big1', 'big2', 'medium', 'small']
+    for color in ['brown', 'grey', 'lightblue', 'lightyellow', 'pink', 'purple', 'red', 'yellow']
+] + [
+    f'death_{size}_{color}.npy'
+    for size in ['big', 'medium', 'small']
+    for color in ['pink', 'yellow']
+]
+
+
+def _get_digits_recolored_as(new_rgb: tuple) -> jnp.ndarray:
+    sprites = _load_and_recolor_group([f'{i}.npy' for i in range(10)], new_rgb)
+    max_height = max(s.shape[0] for s in sprites)
+    max_width = max(s.shape[1] for s in sprites)
+    padded_digits = []
+    for digit in sprites:
+        digit = np.array(digit)
+        pad_h = max_height - digit.shape[0]
+        pad_w = max_width - digit.shape[1]
+        pad_top, pad_bottom = pad_h // 2, pad_h - pad_h // 2
+        pad_left, pad_right = pad_w // 2, pad_w - pad_w // 2
+        padded_digits.append(np.pad(
+            digit, ((pad_top, pad_bottom), (pad_left, pad_right), (0, 0)),
+            mode="constant", constant_values=0,
+        ))
+    return jnp.stack([jnp.array(p) for p in padded_digits])
+
+
+def _get_background_recolored(new_rgb: tuple) -> jnp.ndarray:
+    base_dir = os.path.join(get_base_sprite_dir(), "asteroids")
+    bg = np.load(os.path.join(base_dir, "background.npy"))
+    return jnp.array(_recolor_all(bg, new_rgb))
+
+
+# New colors (tweak here). Each mod recolors only its own element; WALL_COLOR
+# (the top/bottom UI bars) is left at its default so the change stays scoped.
+_NEW_SHIP_COLOR = (100, 200, 255)      # light blue
+_NEW_ASTEROID_COLOR = (255, 140, 0)    # orange (collapses the 8 built-in variants to one)
+_NEW_BACKGROUND_COLOR = (20, 20, 45)   # dark navy
+_NEW_SCORE_COLOR = (0, 220, 0)         # green
+
+
+class ChangeShipColorMod(JaxAtariInternalModPlugin):
+    """Changes the player ship color (default: light blue). Recolors every
+    rotation frame and the death-animation frames."""
+    asset_overrides = {
+        'player_group': {
+            'name': 'player_group', 'type': 'group',
+            'data': _load_and_recolor_group(_PLAYER_FILES, _NEW_SHIP_COLOR),
+        }
+    }
+
+
+class ChangeAsteroidColorMod(JaxAtariInternalModPlugin):
+    """Changes all asteroids to a single color (default: orange), collapsing the
+    base game's 8 built-in per-asteroid color variants into one uniform color."""
+    asset_overrides = {
+        'asteroid_group': {
+            'name': 'asteroid_group', 'type': 'group',
+            'data': _load_and_recolor_group(_ASTEROID_FILES, _NEW_ASTEROID_COLOR),
+        }
+    }
+
+
+class ChangeBackgroundColorMod(JaxAtariInternalModPlugin):
+    """Changes the play-field background color (default: dark navy). The
+    top/bottom UI bars (WALL_COLOR) are left unchanged."""
+    asset_overrides = {
+        'background': {
+            'name': 'background', 'type': 'background',
+            'data': _get_background_recolored(_NEW_BACKGROUND_COLOR),
+        }
+    }
+
+
+class ChangeScoreColorMod(JaxAtariInternalModPlugin):
+    """Changes the score digit color (default: green)."""
+    asset_overrides = {
+        'digits': {
+            'name': 'digits', 'type': 'digits',
+            'data': _get_digits_recolored_as(_NEW_SCORE_COLOR),
+        }
+    }
+
+
+class GrayscaleThemeMod(JaxAtariInternalModPlugin):
+    """
+    Full monochrome theme: recolors the ship, asteroids, missiles, and score to
+    distinct shades of grey. The background and UI wall bars are already neutral
+    black (0,0,0) by default, so they need no change. Shades are hand-picked
+    (not a photometric conversion) so every element stays legibly distinct:
+    asteroids (mid grey) < score (light-mid) < ship (light) < missiles
+    (white, brightest -- easiest to track).
+    """
+    _SHIP_GREY = (230, 230, 230)
+    _ASTEROID_GREY = (140, 140, 140)
+    _MISSILE_GREY = (255, 255, 255)
+    _SCORE_GREY = (190, 190, 190)
+
+    asset_overrides = {
+        'player_group': {
+            'name': 'player_group', 'type': 'group',
+            'data': _load_and_recolor_group(_PLAYER_FILES, _SHIP_GREY),
+        },
+        'asteroid_group': {
+            'name': 'asteroid_group', 'type': 'group',
+            'data': _load_and_recolor_group(_ASTEROID_FILES, _ASTEROID_GREY),
+        },
+        'missile1': {
+            'name': 'missile1', 'type': 'single',
+            'data': _load_and_recolor_single('missile1.npy', _MISSILE_GREY),
+        },
+        'missile2': {
+            'name': 'missile2', 'type': 'single',
+            'data': _load_and_recolor_single('missile2.npy', _MISSILE_GREY),
+        },
+        'digits': {
+            'name': 'digits', 'type': 'digits',
+            'data': _get_digits_recolored_as(_SCORE_GREY),
+        },
+    }
+
+
+class NoFlickerMod(JaxAtariInternalModPlugin):
+    """
+    Marker mod: disables the base game's Atari-hardware sprite-flicker
+    emulation, so the ship/missiles and the asteroids render every frame instead
+    of alternating. This mod patches no methods and has no overrides -- `render`
+    exists on both the env and the renderer, which the mod controller treats as
+    ambiguous, so it cannot be patched by a plugin. The actual logic lives in
+    AsteroidsEnvMod.render, which detects this marker and renders twice (once at
+    each step_counter parity) to recover both groups, then merges them.
+    """
+    pass
+
+
+# --- Dynamics mods -----------------------------------------------------------
+_BASE_ACCEL_PER_ROTATION = jnp.array([
+    (0, -64), (-25, -59), (-45, -45), (-59, -25), (-64, 0), (-59, 25), (-45, 45), (-25, 59),
+    (0, 64), (25, 59), (45, 45), (59, 25), (64, 0), (59, -25), (45, -45), (25, -59),
+])
+_BASE_MAX_PLAYER_SPEED = 60 * 256 - 1
+
+
+class FasterAsteroidsMod(JaxAtariInternalModPlugin):
+    """
+    Makes asteroids faster by scaling ASTEROID_SPEED (default (2, 1): 2 px
+    horizontal on periodic side-step frames, 1 px vertical every frame) by
+    _SPEED_MULTIPLIER. Kept modest -- asteroid-vs-player/missile collision is a
+    same-frame bounding-box check with no swept collision, and asteroid sprites
+    are large (16-28 px), so a jump much bigger than the multiplier used here
+    risks skipping over a small missile/ship hitbox between frames.
+    """
+    _SPEED_MULTIPLIER = 2
+
+    constants_overrides = {
+        "ASTEROID_SPEED": (2 * _SPEED_MULTIPLIER, 1 * _SPEED_MULTIPLIER),
+    }
+
+
+class SlowerAsteroidsMod(JaxAtariInternalModPlugin):
+    """
+    Makes asteroids slower. ASTEROID_SPEED's vertical component is already at
+    its integer floor (1 px, applied every frame with no gating), so a
+    constant-scaling approach can't go below default speed. Instead this patches
+    asteroids_step (the whole per-frame movement update) to run only on every
+    2nd frame, halving effective speed on both axes while keeping the same
+    ASTEROID_SPEED per-update magnitude (and therefore the same collision-safety
+    margins as the unmodded game).
+    """
+    @partial(jax.jit, static_argnums=(0,))
+    def asteroids_step(self, asteroids_state: AsteroidsState):
+        should_move = asteroids_state.step_counter % 2 == 0
+
+        def _move(_):
+            return JaxAsteroids.asteroids_step(self._env, asteroids_state)
+
+        def _no_move(_):
+            return asteroids_state.asteroid_states, asteroids_state.side_step_counter, asteroids_state.rng_key
+
+        return jax.lax.cond(should_move, _move, _no_move, operand=None)
+
+
+class FasterShipMod(JaxAtariInternalModPlugin):
+    """
+    Makes the ship faster: scales both thrust power (ACCEL_PER_ROTATION,
+    applied every frame while thrusting) and the top speed cap
+    (MAX_PLAYER_SPEED) by _SPEED_MULTIPLIER. Unlike a paddle with a slow
+    acceleration ramp, thrust here is a constant per-frame acceleration, so
+    scaling it is immediately noticeable (faster speed buildup, not just a
+    higher ceiling that's rarely reached).
+    """
+    _SPEED_MULTIPLIER = 2.0
+
+    constants_overrides = {
+        "ACCEL_PER_ROTATION": (_BASE_ACCEL_PER_ROTATION * _SPEED_MULTIPLIER).astype(jnp.int32),
+        "MAX_PLAYER_SPEED": int(_BASE_MAX_PLAYER_SPEED * _SPEED_MULTIPLIER),
+    }
+
+
+class SlowerShipMod(JaxAtariInternalModPlugin):
+    """
+    Makes the ship slower: scales both thrust power (ACCEL_PER_ROTATION) and
+    the top speed cap (MAX_PLAYER_SPEED) down by _SPEED_MULTIPLIER.
+    """
+    _SPEED_MULTIPLIER = 0.5
+
+    constants_overrides = {
+        "ACCEL_PER_ROTATION": (_BASE_ACCEL_PER_ROTATION * _SPEED_MULTIPLIER).astype(jnp.int32),
+        "MAX_PLAYER_SPEED": int(_BASE_MAX_PLAYER_SPEED * _SPEED_MULTIPLIER),
+    }
+
+
+class RandomizeAsteroidSpawnMod(JaxAtariPostStepModPlugin):
+    """
+    Randomizes where the 4 starting asteroids appear and which of the 4
+    directions they travel. The base game's initial asteroid layout
+    (INITIAL_ASTEROID_STATES) is a fixed constant -- every episode starts with
+    the exact same 4 asteroids at the exact same positions/headings. This mod
+    redraws their (x, y) position and direction at every reset, keeping their
+    size and color (and therefore difficulty) unchanged, so only the starting
+    conditions vary. Implemented via after_reset (the wrapper hook made for
+    modifying initial state) rather than patching reset() directly.
+    """
+    @partial(jax.jit, static_argnums=(0,))
+    def after_reset(self, obs, state: AsteroidsState):
+        c = self._env.consts
+        key, kx, ky, kdir = jax.random.split(state.rng_key, 4)
+        n = c.MAX_NUMBER_OF_ASTEROIDS
+
+        was_active = state.asteroid_states[:, 3] != c.INACTIVE
+        new_x = jax.random.randint(kx, (n,), c.MIN_ENTITY_X, c.MAX_ENTITY_X + 1)
+        new_y = jax.random.randint(ky, (n,), c.MIN_ENTITY_Y, c.MAX_ENTITY_Y + 1)
+        new_dir = jax.random.randint(kdir, (n,), 0, 4)
+
+        new_asteroid_states = state.asteroid_states.at[:, 0].set(
+            jnp.where(was_active, new_x, state.asteroid_states[:, 0])
+        ).at[:, 1].set(
+            jnp.where(was_active, new_y, state.asteroid_states[:, 1])
+        ).at[:, 2].set(
+            jnp.where(was_active, new_dir, state.asteroid_states[:, 2])
+        )
+
+        return obs, state.replace(asteroid_states=new_asteroid_states, rng_key=key)
+
+
+class ShipInertiaMod(JaxAtariInternalModPlugin):
+    """
+    Removes the base game's built-in velocity dampening: the ship keeps its
+    momentum indefinitely once thrust is released (frictionless Newtonian
+    flight) instead of gradually decelerating back toward a stop. The ship must
+    be actively counter-thrust to slow down or change direction, which is more
+    physically realistic but noticeably harder to control precisely.
+    """
+    @partial(jax.jit, static_argnums=(0,))
+    def decel_func(self, speed):
+        return jnp.zeros_like(speed)
+
+
+# --- Reward mods -------------------------------------------------------------
+def _destroy_masks_by_size(consts, prev_asteroid_states, new_asteroid_states):
+    """Per-size destroy-transition masks, matching the base game's own scoring
+    detection (JaxAsteroids.get_transition_score)."""
+    prev_sizes = prev_asteroid_states[:, 3]
+    new_sizes = new_asteroid_states[:, 3]
+    is_large_destroy = ((prev_sizes == consts.LARGE_1) | (prev_sizes == consts.LARGE_2)) & (new_sizes == consts.MEDIUM)
+    is_medium_destroy = (prev_sizes == consts.MEDIUM) & (new_sizes == consts.SMALL)
+    is_small_destroy = (prev_sizes == consts.SMALL) & (new_sizes == consts.INACTIVE)
+    return is_large_destroy, is_medium_destroy, is_small_destroy
+
+
+class LifeLossPenaltyMod(JaxAtariInternalModPlugin):
+    """
+    Adds a -_PENALTY floor whenever the player loses a life, on top of the
+    normal score-delta reward. The base game rewards destroying asteroids but is
+    silent about losing a life, so this shifts the optimum from pure
+    destruction toward survival. A life loss is the frame `lives` decreases.
+    """
+    _PENALTY = 1
+
+    @partial(jax.jit, static_argnums=(0,))
+    def _get_reward(self, previous_state: AsteroidsState, state: AsteroidsState):
+        base = state.score - previous_state.score
+        life_lost = state.lives < previous_state.lives
+        return (base - life_lost.astype(jnp.int32) * self._PENALTY).astype(jnp.int32)
+
+
+class FlattenAsteroidValuesMod(JaxAtariInternalModPlugin):
+    """
+    Every asteroid destroyed pays +1, removing the base game's size-based
+    scoring scheme (large=20, medium=50, small=100 points). Detected via the
+    same size-transition logic the base game uses for real scoring.
+    """
+    @partial(jax.jit, static_argnums=(0,))
+    def _get_reward(self, previous_state: AsteroidsState, state: AsteroidsState):
+        is_l, is_m, is_s = _destroy_masks_by_size(self._env.consts, previous_state.asteroid_states, state.asteroid_states)
+        total_destroys = jnp.sum(is_l.astype(jnp.int32)) + jnp.sum(is_m.astype(jnp.int32)) + jnp.sum(is_s.astype(jnp.int32))
+        return total_destroys.astype(jnp.int32)
+
+
+class SmallAsteroidOnlyMod(JaxAtariInternalModPlugin):
+    """
+    Rewards +1 only for destroying SMALL asteroids -- the hardest to hit, and
+    the highest-value target in the base game's own scoring (100 pts). Large
+    and medium destroys give 0.
+    """
+    @partial(jax.jit, static_argnums=(0,))
+    def _get_reward(self, previous_state: AsteroidsState, state: AsteroidsState):
+        _, _, is_s = _destroy_masks_by_size(self._env.consts, previous_state.asteroid_states, state.asteroid_states)
+        return jnp.sum(is_s.astype(jnp.int32)).astype(jnp.int32)
+
+
+class WaveClearBonusMod(JaxAtariInternalModPlugin):
+    """
+    Adds a +_BONUS reward when a wave (stage) is cleared, on top of the normal
+    score-delta reward. Reads the base game's wave_count (incremented at the
+    exact real stage-clear trigger inside step()). An earlier version tried to
+    infer this from the active-asteroid count jumping to NEW_ASTEROIDS_COUNT,
+    but that is NOT a reliable signature: a normal large-asteroid split spawns
+    an extra 'ghost' asteroid and can coincidentally also raise the count to
+    NEW_ASTEROIDS_COUNT, causing false positives (confirmed empirically -- it
+    fired on ~1 in 2000 random steps with zero genuine wave clears).
+    """
+    _BONUS = 50
+
+    @partial(jax.jit, static_argnums=(0,))
+    def _get_reward(self, previous_state: AsteroidsState, state: AsteroidsState):
+        base = state.score - previous_state.score
+        wave_cleared = state.wave_count > previous_state.wave_count
+        return (base + wave_cleared.astype(jnp.int32) * self._BONUS).astype(jnp.int32)
+
+
+class EveryKKillsMod(JaxAtariInternalModPlugin):
+    """
+    Rewards +1 on every _K-th asteroid kill and 0 for everything else (including
+    life loss and wave clears), replacing the score-based reward entirely. Uses
+    the base game's kill_count (a plain cumulative kill counter -- immune to the
+    ambiguity of deriving kill count from size-weighted score deltas, since a
+    single step's point delta can't always be uniquely decoded back into a kill
+    count) and credits once per Kth-boundary crossed, which correctly handles
+    steps with multiple simultaneous kills.
+    """
+    _K = 5
+
+    @partial(jax.jit, static_argnums=(0,))
+    def _get_reward(self, previous_state: AsteroidsState, state: AsteroidsState):
+        crossed = state.kill_count // self._K - previous_state.kill_count // self._K
+        return crossed.astype(jnp.int32)
+
+
+class SurvivalRewardMod(JaxAtariInternalModPlugin):
+    """
+    Rewards +_PER_STEP for every step taken, regardless of destroying asteroids,
+    wave clears, or anything else -- replaces the score-based reward entirely.
+    The episode ends exactly when lives <= 0 (_get_done), so a flat per-step
+    reward already is "reward for time alive": the training loop stops calling
+    step() once done, so no extra survival/lives check is needed here.
+    """
+    _PER_STEP = 1
+
+    @partial(jax.jit, static_argnums=(0,))
+    def _get_reward(self, previous_state: AsteroidsState, state: AsteroidsState):
+        return jnp.array(self._PER_STEP, dtype=jnp.int32)
+
+
 class MatrixMod(JaxAtariInternalModPlugin):
     """A Matrix-themed mod for Asteroids: black background, green elements."""
     name = "matrix_theme"
@@ -142,58 +513,6 @@ class MatrixMod(JaxAtariInternalModPlugin):
             'data': jnp.array([0, 100, 0, 255], dtype=jnp.uint8).reshape(1, 1, 4)
         }
     }
-
-class SlowAsteroidsMod(JaxAtariInternalModPlugin):
-    """
-    Mod that slows down asteroids by only updating their positions every 2nd frame.
-    """
-    @partial(jax.jit, static_argnums=(0,))
-    def asteroids_step(self, asteroids_state: AsteroidsState):
-        should_move = asteroids_state.step_counter % 2 == 0
-        def _move_logic(_):
-            asteroid_states = asteroids_state.asteroid_states
-            side_step_counter = asteroids_state.side_step_counter
-            rng_key, subkey = jax.random.split(asteroids_state.rng_key)
-            counter_step = jax.random.randint(subkey, [], 7, 10)
-            side_step = jnp.logical_and(side_step_counter <= counter_step, side_step_counter != 0)
-            new_side_step_counter = jax.lax.cond(
-                side_step_counter < counter_step,
-                lambda: 115 + side_step_counter - counter_step,
-                lambda: side_step_counter - counter_step
-            )
-            @jax.jit
-            def update_asteroid(i, asteroid_states):
-                ret = jnp.copy(asteroid_states)
-                axis_directions = jax.lax.switch(
-                    ret[i][2],
-                    [
-                        lambda: (self._env.consts.ASTEROID_SPEED[0], self._env.consts.ASTEROID_SPEED[1]),
-                        lambda: (-self._env.consts.ASTEROID_SPEED[0], self._env.consts.ASTEROID_SPEED[1]),
-                        lambda: (-self._env.consts.ASTEROID_SPEED[0], -self._env.consts.ASTEROID_SPEED[1]),
-                        lambda: (self._env.consts.ASTEROID_SPEED[0], -self._env.consts.ASTEROID_SPEED[1])
-                    ]
-                )
-                return ret.at[i].set(jax.lax.cond(
-                    ret[i][3] != self._env.consts.INACTIVE,
-                    lambda: jnp.array([self._env.final_pos(self._env.consts.MIN_ENTITY_X,
-                                                      self._env.consts.MAX_ENTITY_X,
-                                                      jax.lax.cond(
-                                                          side_step,
-                                                          lambda: ret[i][0] + axis_directions[0],
-                                                          lambda: ret[i][0])),
-                                       self._env.final_pos(self._env.consts.MIN_ENTITY_Y,
-                                                      self._env.consts.MAX_ENTITY_Y,
-                                                      ret[i][1] + axis_directions[1]),
-                                       ret[i][2], ret[i][3], ret[i][4]]),
-                    lambda: ret[i]
-                ))
-            new_asteroid_states = jax.lax.fori_loop(0, self._env.consts.MAX_NUMBER_OF_ASTEROIDS, update_asteroid, asteroid_states)
-            return new_asteroid_states, new_side_step_counter, rng_key
-
-        def _no_move_logic(_):
-            return asteroids_state.asteroid_states, asteroids_state.side_step_counter, asteroids_state.rng_key
-
-        return jax.lax.cond(should_move, _move_logic, _no_move_logic, operand=None)
 
 class InstantTurnMod(JaxAtariInternalModPlugin):
     """Directly places the ship in the direction given by the action and applies thrust."""
