@@ -49,7 +49,7 @@ def make_env(env_id, seed, num_envs, mods=[], pixel_based=True, native_downscali
                 frame_stack_size=4,
                 frame_skip=4,
                 max_pooling=True,
-                clip_reward=True,
+                clip_reward=not eval,
             )
         else:
             env = FlattenObservationWrapper(
@@ -58,7 +58,7 @@ def make_env(env_id, seed, num_envs, mods=[], pixel_based=True, native_downscali
                         env,
                         frame_stack_size=4,
                         frame_skip=4,
-                        clip_reward=True,
+                        clip_reward=not eval,
                     )
                 )
             )

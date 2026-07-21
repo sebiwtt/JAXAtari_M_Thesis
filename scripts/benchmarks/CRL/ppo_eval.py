@@ -67,8 +67,12 @@ def evaluate(
         next_obs, env_state, keys = carry
         actions, keys = jax.vmap(get_action_and_value, in_axes=(None, None, 0, 0))(network_params, actor_params, next_obs, keys)
         next_obs, env_state, reward, done, infos = jax.vmap(wrapped_step)(env_state, jnp.array(actions))
+        # Use env_reward (raw, unclipped) when present, mirroring LogWrapper's own
+        # training-time accounting -- so eval reports the true return regardless
+        # of whether clip_reward happens to be on for this env.
+        env_reward = infos.get("env_reward", reward)
         first_states = jax.tree.map(lambda x: x[0], env_state)
-        return (next_obs, env_state, keys), (first_states, done, reward, actions)
+        return (next_obs, env_state, keys), (first_states, done, env_reward, actions)
 
     reset_keys = jax.random.split(key, eval_episodes)
     next_obs, env_states = jax.vmap(wrapped_reset)(reset_keys)
