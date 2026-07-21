@@ -55,23 +55,28 @@ For an ordered task list `T[0..n-1]` (`T[0]` is always the unmodified base task)
 - **`R[i, j]`** — return of the agent *trained through task i*, evaluated on task j (`j ≤ i`).
 - **`R_rand[j]`** — return of a fresh, untrained agent on task j. This is the "knows
   nothing" floor, which is generally far from 0 and game-dependent (e.g. Pong's
-  random-policy floor is near −21), keyed off `EVAL_SEED`. Reported for context only —
-  not used in the forgetting metric below.
-- **`Drop[i, j] = max(0, (R[j,j] − R[i,j]) / R[j,j])`** (`j < i`) — how much of task j's
-  post-training performance was lost by the time task i was reached. Floored at 0, so if
-  training on later tasks happens to *improve* task j (positive backward transfer), that
-  reads as "no forgetting" rather than a negative drop.
+  random-policy floor is near −21), keyed off `EVAL_SEED`.
+- **`Drop[i, j] = max(0, (R[j,j] − max(R[i,j], R_rand[j])) / (R[j,j] − R_rand[j]))`**
+  (`j < i`) — how much of task j's post-training performance, relative to the
+  `R_rand[j]..R[j,j]` range, was lost by the time task i was reached. Current performance
+  is floored at `R_rand[j]` before the ratio, which bounds `Drop` to `[0, 1]` — it can't
+  register as "worse than random" or "more than fully forgotten," which matters because raw
+  Atari returns can go negative (e.g. life-loss/miss penalties), unlike MEAL's own
+  non-negative performance metric. Floored at 0 too, so if training on later tasks happens
+  to *improve* task j (positive backward transfer), that reads as "no forgetting" rather
+  than a negative drop.
 - **`Forgetting[j]`** — the plain (unweighted) average of `Drop[i, j]` over every later
   checkpoint `i > j`. The last task has no later checkpoint, so it's left undefined (NaN).
   `mean_forgetting` averages this over all tasks except the last.
 
 This is a MEAL/COOM-style metric: the agent is compared to *itself* (its own performance
-right after training task j), not to a fixed reference like `R_rand`. That means it needs
-no assumption that `R[j,j]` is a converged ceiling — unlike an `R_rand`-normalized
-retention ratio, which can exceed 1.0 (and be hard to interpret) whenever `R[j,j]` was
-undertrained relative to what later tasks' extra optimization steps reach. MEAL's own
-version additionally recency-weights the later checkpoints (earlier degradation counts
-more); this implementation skips that weighting for simplicity.
+right after training task j), not to a converged reference. `R_rand` only rescales/clamps
+the range here — it isn't something the metric assumes has been converged to — so unlike
+an `R_rand`-normalized retention ratio, this needs no assumption that `R[j,j]` is a
+converged ceiling; it stays well-defined even if base task performance was still improving
+when its training budget ran out. MEAL's own version additionally recency-weights the later
+checkpoints (earlier degradation counts more); this implementation skips that weighting for
+simplicity.
 
 Setting `EVAL_FULL_MATRIX=True` also fills the `j > i` cells (forward transfer to
 not-yet-trained tasks), at roughly double the eval cost. These extra cells aren't used by

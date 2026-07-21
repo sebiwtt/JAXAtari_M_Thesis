@@ -15,15 +15,18 @@
 #
 #   R[i, j]         = return of the agent trained through task i, evaluated on task j  (j <= i)
 #   R_rand[j]       = return of a fresh/untrained agent on task j - the "knows nothing" floor,
-#                     not 0 (Pong's random-policy floor is close to -21); reported for context,
-#                     no longer used in the forgetting metric below
-#   Drop[i, j]      = max(0, (R[j,j] - R[i,j]) / R[j,j])                                (j < i)
-#                     how much of task j's post-training performance was lost by the time
-#                     task i was reached; floored at 0 so later improvement on task j
-#                     (positive backward transfer) reads as "no forgetting", not a negative
-#                     drop. MEAL/COOM-style: the agent is compared to itself, so unlike the
-#                     old R_rand-normalized Retention this needs no assumption that R[j,j] is
-#                     a converged ceiling.
+#                     not 0 (Pong's random-policy floor is close to -21)
+#   Drop[i, j]      = max(0, (R[j,j] - max(R[i,j], R_rand[j])) / (R[j,j] - R_rand[j]))  (j < i)
+#                     how much of task j's post-training performance (relative to the
+#                     R_rand[j]..R[j,j] range) was lost by the time task i was reached.
+#                     Current performance is floored at R_rand[j] before the ratio, so it's
+#                     mathematically bounded to [0, 1] - can't register as "worse than random"
+#                     or "more than fully forgotten". Floored at 0 too, so later improvement on
+#                     task j (positive backward transfer) reads as "no forgetting", not a
+#                     negative drop. MEAL/COOM-style: the agent is compared to itself (not a
+#                     fixed converged reference), so unlike the old R_rand-normalized Retention
+#                     this needs no assumption that R[j,j] is a converged ceiling - R_rand here
+#                     only rescales/clamps the range, it isn't the thing being converged to.
 #   Forgetting[j]   = unweighted mean of Drop[i, j] over every later checkpoint i > j
 #                     (MEAL uses a recency-weighted average instead; this is the simpler,
 #                     unweighted version). The last task has no later checkpoint -> NaN.
@@ -263,31 +266,33 @@ def run_continual(config: dict) -> None:
                     f"completed within the eval scan window; this cell's mean return may be inflated."
                 )
             R[i, j] = float(episodic_returns.mean())
-            kind = "forward transfer" if j > i else "retention"
+            kind = "forward transfer" if j > i else "forgetting"
             print(f"[CRL] R[{i},{j}] ({kind}: train through task {i}={labels[i]!r}, eval on task {j}={labels[j]!r}) = {R[i, j]:.3f}")
 
     method.save_artifacts(cl_state, run_dir)
     if os.path.exists(eval_tmp_path):
         os.remove(eval_tmp_path)
 
-    # MEAL-style forgetting (unweighted): the agent is compared to *itself*, not to
-    # R_rand, so this needs no convergence assumption about R[j,j] being a true ceiling -
-    # it only asks "did task j get worse later than it was right after training it."
-    # Drop[i,j] (j < i only) = fraction of task j's post-training performance lost by the
-    # time task i was reached, floored at 0 so later improvement on task j (positive
-    # backward transfer) counts as "no forgetting" instead of a confusing negative drop.
-    # Forgetting[j] is the plain (unweighted) mean of Drop[., j] over every later
-    # checkpoint i > j; the last task has no later checkpoint, so it stays NaN.
+    # MEAL-style forgetting (unweighted): the agent is compared to *itself*, not to a
+    # converged reference, so this needs no assumption that R[j,j] is a true ceiling - it
+    # only asks "did task j get worse later than it was right after training it." R_rand
+    # comes back in here only to floor/rescale the range (see module docstring), which
+    # bounds Drop to [0, 1] instead of letting it blow past 1 when raw returns go negative.
     diag = np.diag(R)  # R[j, j]: performance right after finishing task j - the reference
     Drop = np.full((num_tasks, num_tasks), np.nan)
     for i in range(num_tasks):
         for j in range(i):  # j < i only: forgetting is only defined for already-trained tasks
-            if diag[j] <= 0:
-                print(f"[CRL] WARNING: R[{j},{j}]={diag[j]:.3f} <= 0; Drop[{i},{j}] is undefined, leaving as NaN.")
+            denom = diag[j] - R_rand[j]
+            if denom <= 0:
+                print(
+                    f"[CRL] WARNING: R[{j},{j}]={diag[j]:.3f} <= R_rand[{j}]={R_rand[j]:.3f}; "
+                    f"Drop[{i},{j}] is undefined, leaving as NaN."
+                )
                 continue
             if np.isnan(R[i, j]):
                 continue
-            Drop[i, j] = max(0.0, (diag[j] - R[i, j]) / diag[j])
+            clamped = max(R[i, j], R_rand[j])
+            Drop[i, j] = max(0.0, (diag[j] - clamped) / denom)
 
     Forgetting = np.full(num_tasks, np.nan)
     for j in range(num_tasks - 1):

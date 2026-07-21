@@ -4,10 +4,12 @@
 # Loads a run directory's matrix.{npz,json} (as saved by ppo_crl_continual.py) and
 # renders a single multi-panel figure summarizing continual-learning performance:
 #
-#   1. Drop heatmap          Drop[i,j] = max(0, (R[j,j]-R[i,j]) / R[j,j])   (j < i)
-#                           0.0 = no forgetting, 1.0 = fully forgotten. MEAL/COOM-style:
-#                           the agent is compared to its own post-task-j performance, not
-#                           to a random-agent floor, so no convergence assumption needed.
+#   1. Drop heatmap          Drop[i,j] = max(0, (R[j,j]-max(R[i,j],R_rand[j])) / (R[j,j]-R_rand[j]))
+#                           (j < i), bounded to [0,1]. 0.0 = no forgetting, 1.0 = fully
+#                           forgotten (at or below the random-agent floor). MEAL/COOM-style:
+#                           the agent is compared to its own post-task-j performance, not to
+#                           a converged reference, so no convergence assumption is needed -
+#                           R_rand here only rescales/clamps the range.
 #   2. Raw-return heatmap    R[i,j], with the R_rand random-agent floor as a top row.
 #   3. Forgetting curves     one line per task j: drop on task j as later tasks i>j
 #                            are learned (shows *how fast* each task degrades).
