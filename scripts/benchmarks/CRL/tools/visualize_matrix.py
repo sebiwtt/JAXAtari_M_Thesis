@@ -4,12 +4,14 @@
 # Loads a run directory's matrix.{npz,json} (as saved by ppo_crl_continual.py) and
 # renders a single multi-panel figure summarizing continual-learning performance:
 #
-#   1. Retention heatmap    R_norm[i,j] = (R[i,j]-R_rand[j]) / (R[j,j]-R_rand[j])
-#                           1.0 = fully retained post-task-j skill, 0.0 = random floor.
+#   1. Drop heatmap          Drop[i,j] = max(0, (R[j,j]-R[i,j]) / R[j,j])   (j < i)
+#                           0.0 = no forgetting, 1.0 = fully forgotten. MEAL/COOM-style:
+#                           the agent is compared to its own post-task-j performance, not
+#                           to a random-agent floor, so no convergence assumption needed.
 #   2. Raw-return heatmap    R[i,j], with the R_rand random-agent floor as a top row.
-#   3. Forgetting curves     one line per task j: retention of task j as later tasks i>=j
+#   3. Forgetting curves     one line per task j: drop on task j as later tasks i>j
 #                            are learned (shows *how fast* each task degrades).
-#   4. Aggregate metrics     final avg performance, avg retention, backward transfer.
+#   4. Aggregate metrics     final avg performance, mean forgetting, backward transfer.
 #
 # Usage:
 #   python tools/visualize_matrix.py runs/pong_ppo_crl_continual_pixel_1
@@ -55,7 +57,9 @@ def load_matrix(run_dir: str) -> dict:
         return {
             "R": np.array(d["R"], dtype=float),
             "R_rand": np.array(d["R_rand"], dtype=float),
-            "Retention": np.array(d["Retention"], dtype=float),
+            "Drop": np.array(d["Drop"], dtype=float),
+            "Forgetting": np.array(d["Forgetting"], dtype=float),
+            "mean_forgetting": float(d["mean_forgetting"]),
             "labels": list(d["labels"]),
             "env_id": d.get("env_id", "unknown"),
             "exp_name": d.get("exp_name", "unknown"),
@@ -65,7 +69,9 @@ def load_matrix(run_dir: str) -> dict:
         return {
             "R": z["R"].astype(float),
             "R_rand": z["R_rand"].astype(float),
-            "Retention": z["Retention"].astype(float),
+            "Drop": z["Drop"].astype(float),
+            "Forgetting": z["Forgetting"].astype(float),
+            "mean_forgetting": float(z["mean_forgetting"]),
             "labels": [str(l) for l in z["labels"]],
             # env_id/exp_name added later; fall back for older matrices.
             "env_id": str(z["env_id"]) if "env_id" in z.files else "unknown",
@@ -88,21 +94,21 @@ def _annotate_heatmap(ax, M, fmt="{:.2f}", threshold=None):
                     color=color, fontsize=8)
 
 
-def plot_retention_heatmap(ax, Retention, labels):
+def plot_drop_heatmap(ax, Drop, labels):
     n = len(labels)
-    # Diverging: red (forgot, <=0) -> yellow (half) -> green (fully retained, 1.0),
+    # Diverging: green (no forgetting, 0.0) -> yellow (half) -> red (fully forgotten, 1.0),
     # neutral midpoint at 0.5. Color clamps to [0,1]; annotations show true values.
     norm = TwoSlopeNorm(vmin=0.0, vcenter=0.5, vmax=1.0)
-    im = ax.imshow(np.clip(Retention, 0.0, 1.0), cmap="RdYlGn", norm=norm, aspect="equal")
-    _annotate_heatmap(ax, Retention, threshold=0.5)
+    im = ax.imshow(np.clip(Drop, 0.0, 1.0), cmap="RdYlGn_r", norm=norm, aspect="equal")
+    _annotate_heatmap(ax, Drop, threshold=0.5)
 
     ax.set_xticks(range(n), labels, rotation=45, ha="right", fontsize=8)
     ax.set_yticks(range(n), labels, fontsize=8)
     ax.set_xlabel("evaluated on task j")
     ax.set_ylabel("trained through task i")
-    ax.set_title("Retention  (1.0 = fully retained, 0.0 = random floor)")
+    ax.set_title("Drop  (0.0 = no forgetting, 1.0 = fully forgotten)")
     cbar = ax.figure.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
-    cbar.set_label("retention")
+    cbar.set_label("drop")
 
 
 def plot_return_heatmap(ax, R, R_rand, labels):
@@ -122,15 +128,16 @@ def plot_return_heatmap(ax, R, R_rand, labels):
     ax.figure.colorbar(im, ax=ax, fraction=0.046, pad=0.04).set_label("return")
 
 
-def plot_forgetting_curves(ax, Retention, labels):
-    """For each task j, retention of task j at every later training stage i >= j."""
+def plot_forgetting_curves(ax, Drop, labels):
+    """For each task j, drop on task j at every later training stage i > j (starts at 0)."""
     n = len(labels)
     stages = np.arange(n)
-    for j in range(n):
+    for j in range(n - 1):  # last task has no later stage to show a curve for
         color = OKABE_ITO[j % len(OKABE_ITO)]
-        # Only i >= j is defined (retention is measured after task j is learned).
-        ys = Retention[j:, j]
         xs = stages[j:]
+        # Drop[j, j] isn't stored (trivially 0: nothing "later" yet to compare against);
+        # prepend it explicitly so the curve starts at its true origin.
+        ys = np.concatenate([[0.0], Drop[j + 1:, j]])
         finite = np.isfinite(ys)
         if not finite.any():
             continue
@@ -141,32 +148,28 @@ def plot_forgetting_curves(ax, Retention, labels):
                     textcoords="offset points", xytext=(6, 0), va="center",
                     fontsize=7, color=color)
 
-    ax.axhline(1.0, color="gray", linewidth=1, linestyle="--", alpha=0.6)  # freshly-learned
-    ax.axhline(0.0, color="gray", linewidth=1, linestyle=":", alpha=0.6)   # random floor
+    ax.axhline(0.0, color="gray", linewidth=1, linestyle="--", alpha=0.6)  # no forgetting
     ax.set_xticks(stages, labels, rotation=45, ha="right", fontsize=8)
     ax.set_xlabel("training stage (trained through task i)")
-    ax.set_ylabel("retention of task j")
+    ax.set_ylabel("drop on task j")
     ax.set_title("Forgetting curves (per task)")
     if n <= 4:
         ax.legend(fontsize=7, loc="lower left")
 
 
-def compute_metrics(R, R_rand, Retention, labels):
+def compute_metrics(R, mean_forgetting, labels):
     """Standard continual-learning summary scalars."""
     n = len(labels)
     diag = np.diag(R)
     last_row = R[n - 1, :]  # final agent evaluated on every task
 
-    # Average retention over the below-diagonal cells actually filled (j < i).
-    lower = [Retention[i, j] for i in range(n) for j in range(i) if np.isfinite(Retention[i, j])]
     # Backward transfer: how final performance on an earlier task compares to right
-    # after it was learned. Negative = forgetting.
+    # after it was learned. Negative = forgetting, positive = later tasks helped it.
     bwt = [R[n - 1, j] - diag[j] for j in range(n - 1) if np.isfinite(R[n - 1, j]) and np.isfinite(diag[j])]
 
     return {
         "final_avg_return": float(np.nanmean(last_row)),
-        "final_avg_retention": float(np.nanmean(Retention[n - 1, :])),
-        "avg_retention_lower": float(np.mean(lower)) if lower else float("nan"),
+        "mean_forgetting": mean_forgetting,
         "backward_transfer": float(np.mean(bwt)) if bwt else float("nan"),
     }
 
@@ -175,8 +178,7 @@ def plot_metrics_panel(ax, metrics):
     ax.axis("off")
     lines = [
         ("Final avg return", f"{metrics['final_avg_return']:.2f}"),
-        ("Final avg retention", f"{metrics['final_avg_retention']:.3f}"),
-        ("Avg retention (j<i)", f"{metrics['avg_retention_lower']:.3f}"),
+        ("Mean forgetting", f"{metrics['mean_forgetting']:.3f}"),
         ("Backward transfer", f"{metrics['backward_transfer']:.2f}"),
     ]
     ax.set_title("Summary metrics", fontsize=11, loc="left")
@@ -190,14 +192,14 @@ def plot_metrics_panel(ax, metrics):
 
 def visualize(run_dir: str, out_path: str | None, show: bool) -> str:
     data = load_matrix(run_dir)
-    R, R_rand, Retention = data["R"], data["R_rand"], data["Retention"]
+    R, R_rand, Drop = data["R"], data["R_rand"], data["Drop"]
     labels = data["labels"]
-    metrics = compute_metrics(R, R_rand, Retention, labels)
+    metrics = compute_metrics(R, data["mean_forgetting"], labels)
 
     fig, axes = plt.subplots(2, 2, figsize=(14, 12))
-    plot_retention_heatmap(axes[0, 0], Retention, labels)
+    plot_drop_heatmap(axes[0, 0], Drop, labels)
     plot_return_heatmap(axes[0, 1], R, R_rand, labels)
-    plot_forgetting_curves(axes[1, 0], Retention, labels)
+    plot_forgetting_curves(axes[1, 0], Drop, labels)
     plot_metrics_panel(axes[1, 1], metrics)
 
     fig.suptitle(

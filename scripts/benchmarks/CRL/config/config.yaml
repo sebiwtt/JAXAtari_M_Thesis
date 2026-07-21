@@ -45,7 +45,7 @@ NATIVE_DOWNSCALING: True       # native low-res render instead of resizing full-
 SMOOTH_IMAGE: False            # anti-alias when downscaling
 GRAYSCALE: False               # True = grayscale observations; False = full RGB
 
-# Retention-matrix eval (fills R[i,j] for j <= i after each task). EVAL_SEED is fixed
+# R-matrix eval (fills R[i,j] for j <= i after each task). EVAL_SEED is fixed
 # across every cell *within* a run so differences reflect params, not eval noise. Left
 # null, it's derived from SEED (EVAL_SEED = SEED * 12 + 1, see run_continual/run_difficulty)
 # so replicate seeds don't all share literally the same eval noise, while staying fully

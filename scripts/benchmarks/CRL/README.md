@@ -4,8 +4,8 @@ A benchmark for **continual reinforcement learning (CRL)**: one PPO agent is tra
 sequentially over an ordered list of tasks: variants of a single JAXtari game, each
 produced by applying one game modification, carrying its parameters forward from
 task to task. After each task the agent is re-evaluated on every task seen so far, producing
-a **retention matrix** that measures how much of each task's skill survives subsequent
-training.
+a **forgetting matrix** that measures how much of each task's skill is lost during
+subsequent training.
 
 The framework is game-agnostic; a task sequence just names a game and its ordered mods. The
 sequences shipped right now are Pong variants (`config/sequence/pong_*`), with more games to
@@ -55,18 +55,32 @@ For an ordered task list `T[0..n-1]` (`T[0]` is always the unmodified base task)
 - **`R[i, j]`** — return of the agent *trained through task i*, evaluated on task j (`j ≤ i`).
 - **`R_rand[j]`** — return of a fresh, untrained agent on task j. This is the "knows
   nothing" floor, which is generally far from 0 and game-dependent (e.g. Pong's
-  random-policy floor is near −21), keyed off `EVAL_SEED`.
-- **`Retention[i, j] = (R[i,j] − R_rand[j]) / (R[j,j] − R_rand[j])`** — 1.0 means task j's
-  skill is fully retained after training through task i; 0.0 means it has decayed back to
-  random.
+  random-policy floor is near −21), keyed off `EVAL_SEED`. Reported for context only —
+  not used in the forgetting metric below.
+- **`Drop[i, j] = max(0, (R[j,j] − R[i,j]) / R[j,j])`** (`j < i`) — how much of task j's
+  post-training performance was lost by the time task i was reached. Floored at 0, so if
+  training on later tasks happens to *improve* task j (positive backward transfer), that
+  reads as "no forgetting" rather than a negative drop.
+- **`Forgetting[j]`** — the plain (unweighted) average of `Drop[i, j]` over every later
+  checkpoint `i > j`. The last task has no later checkpoint, so it's left undefined (NaN).
+  `mean_forgetting` averages this over all tasks except the last.
+
+This is a MEAL/COOM-style metric: the agent is compared to *itself* (its own performance
+right after training task j), not to a fixed reference like `R_rand`. That means it needs
+no assumption that `R[j,j]` is a converged ceiling — unlike an `R_rand`-normalized
+retention ratio, which can exceed 1.0 (and be hard to interpret) whenever `R[j,j]` was
+undertrained relative to what later tasks' extra optimization steps reach. MEAL's own
+version additionally recency-weights the later checkpoints (earlier degradation counts
+more); this implementation skips that weighting for simplicity.
 
 Setting `EVAL_FULL_MATRIX=True` also fills the `j > i` cells (forward transfer to
-not-yet-trained tasks), at roughly double the eval cost.
+not-yet-trained tasks), at roughly double the eval cost. These extra cells aren't used by
+`Drop`/`Forgetting` (which only ever look at `j < i`).
 
-> **Interpreting PackNet:** its retention is **1.0 by construction**: it freezes each
+> **Interpreting PackNet:** its forgetting is **0.0 by construction**: it freezes each
 > task's subnetwork, so a completed task can never be disturbed. For PackNet the meaningful
 > signal is the *diagonal* `R[j,j]` (how well each task learns under a shrinking capacity
-> budget), not retention. Compare methods on average final performance, not retention.
+> budget), not forgetting. Compare methods on average final performance, not forgetting.
 
 ---
 
@@ -93,7 +107,7 @@ CRL/
 │
 ├── tools/                   # auxiliary scripts (not part of the core pipeline)
 │   ├── run_all_crl_seeds.py #   launch N seeds across GPUs
-│   ├── visualize_matrix.py  #   render a run's retention matrix to PNG
+│   ├── visualize_matrix.py  #   render a run's forgetting matrix to PNG
 │   ├── ppo_crl_difficulty.py#   rank tasks by adaptation difficulty (separate study)
 │   └── video_utils.py       #   final-rollout video / obs-frame capture
 │
@@ -139,7 +153,7 @@ Each run writes to `runs/{ENV_ID}_{EXP_NAME}_{oc|pixel}_{SEED}/`, e.g.
 
 | file | contents |
 |------|----------|
-| `matrix.json` / `matrix.npz` | `R`, `R_rand`, `Retention`, labels, task mods, method name |
+| `matrix.json` / `matrix.npz` | `R`, `R_rand`, `Drop`, `Forgetting`, `mean_forgetting`, labels, task mods, method name |
 | `task_{i}.cleanrl_model`      | agent checkpoint after task i (full params) |
 | `random_agent.cleanrl_model`  | the untrained floor agent |
 | `packnet_owner.msgpack`       | (PackNet only) owner tree, needed to recover per-task subnetworks |

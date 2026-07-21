@@ -15,9 +15,18 @@
 #
 #   R[i, j]         = return of the agent trained through task i, evaluated on task j  (j <= i)
 #   R_rand[j]       = return of a fresh/untrained agent on task j - the "knows nothing" floor,
-#                     not 0 (Pong's random-policy floor is close to -21)
-#   Retention[i, j] = (R[i, j] - R_rand[j]) / (R[j, j] - R_rand[j])                     (j <= i)
-#                     1.0 = matches post-task-j performance, 0.0 = performs like random.
+#                     not 0 (Pong's random-policy floor is close to -21); reported for context,
+#                     no longer used in the forgetting metric below
+#   Drop[i, j]      = max(0, (R[j,j] - R[i,j]) / R[j,j])                                (j < i)
+#                     how much of task j's post-training performance was lost by the time
+#                     task i was reached; floored at 0 so later improvement on task j
+#                     (positive backward transfer) reads as "no forgetting", not a negative
+#                     drop. MEAL/COOM-style: the agent is compared to itself, so unlike the
+#                     old R_rand-normalized Retention this needs no assumption that R[j,j] is
+#                     a converged ceiling.
+#   Forgetting[j]   = unweighted mean of Drop[i, j] over every later checkpoint i > j
+#                     (MEAL uses a recency-weighted average instead; this is the simpler,
+#                     unweighted version). The last task has no later checkpoint -> NaN.
 #
 # EVAL_FULL_MATRIX also fills j > i: forward transfer to not-yet-trained tasks.
 #
@@ -261,22 +270,37 @@ def run_continual(config: dict) -> None:
     if os.path.exists(eval_tmp_path):
         os.remove(eval_tmp_path)
 
-    diag = np.diag(R)  # R[j, j], populated before it's needed as a denominator
-    Retention = np.full((num_tasks, num_tasks), np.nan)
+    # MEAL-style forgetting (unweighted): the agent is compared to *itself*, not to
+    # R_rand, so this needs no convergence assumption about R[j,j] being a true ceiling -
+    # it only asks "did task j get worse later than it was right after training it."
+    # Drop[i,j] (j < i only) = fraction of task j's post-training performance lost by the
+    # time task i was reached, floored at 0 so later improvement on task j (positive
+    # backward transfer) counts as "no forgetting" instead of a confusing negative drop.
+    # Forgetting[j] is the plain (unweighted) mean of Drop[., j] over every later
+    # checkpoint i > j; the last task has no later checkpoint, so it stays NaN.
+    diag = np.diag(R)  # R[j, j]: performance right after finishing task j - the reference
+    Drop = np.full((num_tasks, num_tasks), np.nan)
     for i in range(num_tasks):
-        for j in (range(num_tasks) if config.get("EVAL_FULL_MATRIX", False) else range(i + 1)):
-            denom = diag[j] - R_rand[j]
-            if denom == 0:
-                print(
-                    f"[CRL] WARNING: R[{j},{j}]={diag[j]:.3f} equals R_rand[{j}]={R_rand[j]:.3f}; "
-                    f"Retention[{i},{j}] is undefined (0/0), leaving as NaN."
-                )
+        for j in range(i):  # j < i only: forgetting is only defined for already-trained tasks
+            if diag[j] <= 0:
+                print(f"[CRL] WARNING: R[{j},{j}]={diag[j]:.3f} <= 0; Drop[{i},{j}] is undefined, leaving as NaN.")
                 continue
-            Retention[i, j] = (R[i, j] - R_rand[j]) / denom
+            if np.isnan(R[i, j]):
+                continue
+            Drop[i, j] = max(0.0, (diag[j] - R[i, j]) / diag[j])
+
+    Forgetting = np.full(num_tasks, np.nan)
+    for j in range(num_tasks - 1):
+        later_drops = Drop[j + 1:, j]
+        later_drops = later_drops[~np.isnan(later_drops)]
+        if later_drops.size:
+            Forgetting[j] = float(later_drops.mean())
+    mean_forgetting = float(np.nanmean(Forgetting)) if num_tasks > 1 else float("nan")
 
     _print_matrix("R (mean return)", R, labels)
     _print_vector("R_rand (random-agent floor)", R_rand, labels)
-    _print_matrix("Retention ((R[i,j] - R_rand[j]) / (R[j,j] - R_rand[j]))", Retention, labels)
+    _print_vector("Forgetting (per task, avg drop over later checkpoints)", Forgetting, labels)
+    print(f"\n[CRL] mean forgetting across tasks: {mean_forgetting:.4f}")
 
     # Wall-clock, GPU-inclusive: train_task/evaluate are synchronous Python calls
     # that already force a device sync (train()'s per-iteration .item() calls;
@@ -296,7 +320,9 @@ def run_continual(config: dict) -> None:
         f"{run_dir}/matrix.npz",
         R=R,
         R_rand=R_rand,
-        Retention=Retention,
+        Drop=Drop,
+        Forgetting=Forgetting,
+        mean_forgetting=np.array(mean_forgetting),
         task_mods=np.array([json.dumps(m) for m in task_mods_list]),
         labels=np.array(labels),
         env_id=np.array(config["ENV_ID"]),
@@ -316,7 +342,9 @@ def run_continual(config: dict) -> None:
                 "labels": labels,
                 "R": R.tolist(),
                 "R_rand": R_rand.tolist(),
-                "Retention": Retention.tolist(),
+                "Drop": Drop.tolist(),
+                "Forgetting": Forgetting.tolist(),
+                "mean_forgetting": mean_forgetting,
                 "checkpoints": ckpt_paths,
                 "random_agent_checkpoint": rand_ckpt_path,
                 "compute_time_sec": {
@@ -338,9 +366,13 @@ def run_continual(config: dict) -> None:
             wandb.log({f"crl/R_rand/{j}": R_rand[j]})
         for i in range(num_tasks):
             for j in (range(num_tasks) if config.get("EVAL_FULL_MATRIX", False) else range(i + 1)):
-                wandb.log({f"crl/R/{i}_{j}": R[i, j], f"crl/retention/{i}_{j}": Retention[i, j]})
+                wandb.log({f"crl/R/{i}_{j}": R[i, j]})
             wandb.log({f"crl/diag/{i}": R[i, i]})
+        for j in range(num_tasks):
+            if not np.isnan(Forgetting[j]):
+                wandb.log({f"crl/forgetting/{j}": Forgetting[j]})
         wandb.log({
+            "crl/mean_forgetting": mean_forgetting,
             "crl/compute_time/train_total_sec": total_train_time,
             "crl/compute_time/eval_total_sec": total_eval_time,
             "crl/compute_time/total_sec": total_compute_time,
