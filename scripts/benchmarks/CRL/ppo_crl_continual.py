@@ -27,6 +27,7 @@
 
 import json
 import os
+import time
 from functools import partial
 
 import flax
@@ -141,8 +142,10 @@ def run_continual(config: dict) -> None:
     print(f"[CRL] random-agent baseline checkpoint saved to {rand_ckpt_path}")
 
     R_rand = np.full(num_tasks, np.nan)
+    eval_time_rand = 0.0
     for j in range(num_tasks):
         eval_mods = task_mods_list[j]
+        eval_t0 = time.perf_counter()
         episodic_returns, _, completed = evaluate(
             model_path=rand_ckpt_path,
             make_env=partial(
@@ -161,6 +164,7 @@ def run_continual(config: dict) -> None:
         )
         episodic_returns = np.asarray(jax.device_get(episodic_returns))
         completed = np.asarray(jax.device_get(completed))
+        eval_time_rand += time.perf_counter() - eval_t0
         n_completed = int(completed.sum())
         if n_completed < completed.shape[0]:
             print(
@@ -177,6 +181,8 @@ def run_continual(config: dict) -> None:
     R = np.full((num_tasks, num_tasks), np.nan)
     ckpt_paths: list[str] = []
     carried_params = None
+    train_time_per_task = np.full(num_tasks, np.nan)
+    eval_time_matrix = 0.0
 
     for i in range(num_tasks):
         task_mods = task_mods_list[i]
@@ -185,6 +191,7 @@ def run_continual(config: dict) -> None:
 
         task_run_name = f"{base_run_name}_task{i}"
         print(f"\n=== CRL task {i}/{num_tasks - 1}: mods={task_mods} (label={labels[i]!r}, cl_method={method.name}) ===")
+        train_t0 = time.perf_counter()
         carried_params, cl_state = method.train_task(
             train,
             task_config,
@@ -196,6 +203,8 @@ def run_continual(config: dict) -> None:
             manage_wandb=False,
             wandb_group=labels[i],
         )
+        jax.block_until_ready(carried_params)
+        train_time_per_task[i] = time.perf_counter() - train_t0
 
         ckpt_path = f"{run_dir}/task_{i}.cleanrl_model"
         _save_checkpoint(ckpt_path, task_config, carried_params)
@@ -214,6 +223,7 @@ def run_continual(config: dict) -> None:
             else:
                 eval_ckpt_path = eval_tmp_path
                 _save_checkpoint(eval_ckpt_path, task_config, eval_params)
+            eval_t0 = time.perf_counter()
             episodic_returns, _, completed = evaluate(
                 model_path=eval_ckpt_path,
                 make_env=partial(
@@ -231,6 +241,7 @@ def run_continual(config: dict) -> None:
             )
             episodic_returns = np.asarray(jax.device_get(episodic_returns))
             completed = np.asarray(jax.device_get(completed))
+            eval_time_matrix += time.perf_counter() - eval_t0
             n_completed = int(completed.sum())
             if n_completed < completed.shape[0]:
                 print(
@@ -262,6 +273,20 @@ def run_continual(config: dict) -> None:
     _print_vector("R_rand (random-agent floor)", R_rand, labels)
     _print_matrix("Retention ((R[i,j] - R_rand[j]) / (R[j,j] - R_rand[j]))", Retention, labels)
 
+    # Wall-clock, GPU-inclusive: train_task/evaluate are synchronous Python calls
+    # that already force a device sync (train()'s per-iteration .item() calls;
+    # jax.block_until_ready/device_get here) before returning, so timing the call
+    # site captures real compute time without needing to thread timing through
+    # train()/continual method internals.
+    total_train_time = float(np.nansum(train_time_per_task))
+    total_eval_time = float(eval_time_rand + eval_time_matrix)
+    total_compute_time = total_train_time + total_eval_time
+    print(
+        f"\n[CRL] compute time: train={total_train_time:.1f}s, "
+        f"eval={total_eval_time:.1f}s (rand={eval_time_rand:.1f}s, matrix={eval_time_matrix:.1f}s), "
+        f"total={total_compute_time:.1f}s ({total_compute_time / 3600:.2f} h)"
+    )
+
     np.savez(
         f"{run_dir}/matrix.npz",
         R=R,
@@ -271,6 +296,10 @@ def run_continual(config: dict) -> None:
         labels=np.array(labels),
         env_id=np.array(config["ENV_ID"]),
         exp_name=np.array(config["EXP_NAME"]),
+        train_time_per_task=train_time_per_task,
+        eval_time_rand=np.array(eval_time_rand),
+        eval_time_matrix=np.array(eval_time_matrix),
+        total_compute_time=np.array(total_compute_time),
     )
     with open(f"{run_dir}/matrix.json", "w") as f:
         json.dump(
@@ -285,6 +314,14 @@ def run_continual(config: dict) -> None:
                 "Retention": Retention.tolist(),
                 "checkpoints": ckpt_paths,
                 "random_agent_checkpoint": rand_ckpt_path,
+                "compute_time_sec": {
+                    "train_per_task": train_time_per_task.tolist(),
+                    "eval_rand": eval_time_rand,
+                    "eval_matrix": eval_time_matrix,
+                    "train_total": total_train_time,
+                    "eval_total": total_eval_time,
+                    "total": total_compute_time,
+                },
             },
             f,
             indent=2,
@@ -298,6 +335,11 @@ def run_continual(config: dict) -> None:
             for j in (range(num_tasks) if config.get("EVAL_FULL_MATRIX", False) else range(i + 1)):
                 wandb.log({f"crl/R/{i}_{j}": R[i, j], f"crl/retention/{i}_{j}": Retention[i, j]})
             wandb.log({f"crl/diag/{i}": R[i, i]})
+        wandb.log({
+            "crl/compute_time/train_total_sec": total_train_time,
+            "crl/compute_time/eval_total_sec": total_eval_time,
+            "crl/compute_time/total_sec": total_compute_time,
+        })
         wandb.finish()
 
 
