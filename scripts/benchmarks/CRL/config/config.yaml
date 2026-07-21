@@ -46,9 +46,12 @@ SMOOTH_IMAGE: False            # anti-alias when downscaling
 GRAYSCALE: False               # True = grayscale observations; False = full RGB
 
 # Retention-matrix eval (fills R[i,j] for j <= i after each task). EVAL_SEED is fixed
-# across every cell so differences reflect params, not eval noise.
+# across every cell *within* a run so differences reflect params, not eval noise. Left
+# null, it's derived from SEED (EVAL_SEED = SEED * 12 + 1, see run_continual/run_difficulty)
+# so replicate seeds don't all share literally the same eval noise, while staying fully
+# reproducible from SEED alone. Set an explicit int here to pin a fixed eval seed instead.
 EVAL_EPISODES: 15              # parallel eval episodes per matrix cell
-EVAL_SEED: 1
+EVAL_SEED: null
 
 # On: also fill j > i (forward transfer to tasks not yet trained on). Roughly doubles
 # the number of eval() calls.

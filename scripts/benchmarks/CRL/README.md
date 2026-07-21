@@ -165,8 +165,9 @@ uv run python scripts/benchmarks/CRL/tools/run_all_crl_seeds.py \
 uv run python .../run_all_crl_seeds.py --gpus 0 --seeds 0,1,2 -- TOTAL_TIMESTEPS=1000000
 ```
 
-`EVAL_SEED` is deliberately *not* varied across replicates, so every seed is scored under an
-identical eval protocol.
+`EVAL_SEED` is derived from `SEED` (`SEED * 12 + 1`, see `config/config.yaml`), so each
+replicate gets its own reproducible-but-decorrelated eval seed rather than sharing one
+fixed value across all of them.
 
 ---
 

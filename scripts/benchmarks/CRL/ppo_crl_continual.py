@@ -101,6 +101,11 @@ def _save_checkpoint(path: str, config: dict, params: AgentParams) -> None:
 
 def run_continual(config: dict) -> None:
     config = {k.upper(): v for k, v in config.items() if k != "alg"}
+    if config.get("EVAL_SEED") is None:
+        # Derived (not literally 0/1/2/...) so replicate seeds don't share identical eval
+        # noise, while staying reproducible from SEED alone. Still fixed across every
+        # matrix cell within a single run.
+        config["EVAL_SEED"] = config["SEED"] * 12 + 1
 
     task_mods_list = [list(m) for m in config["TASK_MODS"]]
     assert len(task_mods_list) > 0, "TASK_MODS must contain at least one task"
