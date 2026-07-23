@@ -5,10 +5,10 @@ ENV_ID: asteroids
 SEQUENCE: dyn4
 TASK_MODS:
   - []
-  - ["faster_asteroids"]
-  - ["faster_ship"]
-  - ["randomize_asteroid_spawn"]
-  - ["ship_inertia"]
+  - ["faster_asteroids"] # make them even faster
+  - ["faster_ship"] # make it even faster
+  - ["randomize_asteroid_spawn"] # instead also spawn more (like a lot)
+  - ["ship_inertia"] # tweak this even more / or swap with dont_shoot
 
 # --- More Options ---
 # slower_asteroids

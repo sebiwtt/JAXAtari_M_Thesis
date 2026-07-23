@@ -4,8 +4,8 @@ A benchmark for **continual reinforcement learning (CRL)**: one PPO agent is tra
 sequentially over an ordered list of tasks: variants of a single JAXtari game, each
 produced by applying one game modification, carrying its parameters forward from
 task to task. After each task the agent is re-evaluated on every task seen so far, producing
-a **forgetting matrix** that measures how much of each task's skill is lost during
-subsequent training.
+a **retention/forgetting matrix** that measures how much of each task's skill survives (or
+is lost during) subsequent training.
 
 The framework is game-agnostic; a task sequence just names a game and its ordered mods. The
 sequences shipped right now are Pong variants (`config/sequence/pong_*`), with more games to
@@ -56,36 +56,38 @@ For an ordered task list `T[0..n-1]` (`T[0]` is always the unmodified base task)
 - **`R_rand[j]`** — return of a fresh, untrained agent on task j. This is the "knows
   nothing" floor, which is generally far from 0 and game-dependent (e.g. Pong's
   random-policy floor is near −21), keyed off `EVAL_SEED`.
-- **`Drop[i, j] = max(0, (R[j,j] − max(R[i,j], R_rand[j])) / (R[j,j] − R_rand[j]))`**
-  (`j < i`) — how much of task j's post-training performance, relative to the
-  `R_rand[j]..R[j,j]` range, was lost by the time task i was reached. Current performance
-  is floored at `R_rand[j]` before the ratio, which bounds `Drop` to `[0, 1]` — it can't
-  register as "worse than random" or "more than fully forgotten," which matters because raw
-  Atari returns can go negative (e.g. life-loss/miss penalties), unlike MEAL's own
-  non-negative performance metric. Floored at 0 too, so if training on later tasks happens
-  to *improve* task j (positive backward transfer), that reads as "no forgetting" rather
-  than a negative drop.
+- **`Retention[i, j] = clip((R[i,j] − R_rand[j]) / (R[j,j] − R_rand[j]), 0, 1)`** (`j ≤ i`) —
+  1.0 means task j's skill is fully retained after training through task i; 0.0 means
+  at-or-below random. Clamped both directions — raw Atari returns can go negative (e.g.
+  life-loss/miss penalties), so the unclamped ratio can exceed 1.0 whenever a later task
+  happens to improve task j beyond its own post-training checkpoint (positive backward
+  transfer), or go negative when performance craters below the random floor. Both read as
+  "fully retained" / "fully forgotten" respectively once clamped, rather than a confusing
+  value outside `[0, 1]`.
+- **`Drop[i, j] = 1 − Retention[i, j]`** (`j < i` only) — the same information, restricted
+  to already-trained tasks and flipped so 0.0 = no forgetting, 1.0 = fully forgotten.
 - **`Forgetting[j]`** — the plain (unweighted) average of `Drop[i, j]` over every later
-  checkpoint `i > j`. The last task has no later checkpoint, so it's left undefined (NaN).
+  checkpoint `i > j`. The last task has no later checkpoint, so it's left undefined (NaN) —
+  by design, not padded out with an extra "finale" task just to fill the cell.
   `mean_forgetting` averages this over all tasks except the last.
 
-This is a MEAL/COOM-style metric: the agent is compared to *itself* (its own performance
-right after training task j), not to a converged reference. `R_rand` only rescales/clamps
-the range here — it isn't something the metric assumes has been converged to — so unlike
-an `R_rand`-normalized retention ratio, this needs no assumption that `R[j,j]` is a
-converged ceiling; it stays well-defined even if base task performance was still improving
-when its training budget ran out. MEAL's own version additionally recency-weights the later
-checkpoints (earlier degradation counts more); this implementation skips that weighting for
-simplicity.
+`Retention`/`Drop`/`Forgetting` are MEAL/COOM-style: the agent is compared to *itself* (its
+own performance right after training task j), not to a converged reference. `R_rand` only
+rescales/clamps the range here — it isn't something the metric assumes has been converged
+to — so this needs no assumption that `R[j,j]` is a converged ceiling; it stays well-defined
+even if base task performance was still improving when its training budget ran out. MEAL's
+own version additionally recency-weights the later checkpoints (earlier degradation counts
+more); this implementation skips that weighting for simplicity.
 
 Setting `EVAL_FULL_MATRIX=True` also fills the `j > i` cells (forward transfer to
-not-yet-trained tasks), at roughly double the eval cost. These extra cells aren't used by
-`Drop`/`Forgetting` (which only ever look at `j < i`).
+not-yet-trained tasks), at roughly double the eval cost. These extra cells feed `Retention`
+but aren't used by `Drop`/`Forgetting` (which only ever look at `j < i`).
 
-> **Interpreting PackNet:** its forgetting is **0.0 by construction**: it freezes each
-> task's subnetwork, so a completed task can never be disturbed. For PackNet the meaningful
-> signal is the *diagonal* `R[j,j]` (how well each task learns under a shrinking capacity
-> budget), not forgetting. Compare methods on average final performance, not forgetting.
+> **Interpreting PackNet:** its retention is **1.0** / forgetting is **0.0**, both by
+> construction: it freezes each task's subnetwork, so a completed task can never be
+> disturbed. For PackNet the meaningful signal is the *diagonal* `R[j,j]` (how well each
+> task learns under a shrinking capacity budget), not retention/forgetting. Compare methods
+> on average final performance instead.
 
 ---
 
@@ -112,7 +114,7 @@ CRL/
 │
 ├── tools/                   # auxiliary scripts (not part of the core pipeline)
 │   ├── run_all_crl_seeds.py #   launch N seeds across GPUs
-│   ├── visualize_matrix.py  #   render a run's forgetting matrix to PNG
+│   ├── visualize_matrix.py  #   render a run's retention/forgetting matrix to PNG
 │   ├── ppo_crl_difficulty.py#   rank tasks by adaptation difficulty (separate study)
 │   └── video_utils.py       #   final-rollout video / obs-frame capture
 │
@@ -158,7 +160,7 @@ Each run writes to `runs/{ENV_ID}_{EXP_NAME}_{oc|pixel}_{SEED}/`, e.g.
 
 | file | contents |
 |------|----------|
-| `matrix.json` / `matrix.npz` | `R`, `R_rand`, `Drop`, `Forgetting`, `mean_forgetting`, labels, task mods, method name |
+| `matrix.json` / `matrix.npz` | `R`, `R_rand`, `Retention`, `Drop`, `Forgetting`, `mean_forgetting`, labels, task mods, method name |
 | `task_{i}.cleanrl_model`      | agent checkpoint after task i (full params) |
 | `random_agent.cleanrl_model`  | the untrained floor agent |
 | `packnet_owner.msgpack`       | (PackNet only) owner tree, needed to recover per-task subnetworks |

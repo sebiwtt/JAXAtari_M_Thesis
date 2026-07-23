@@ -53,6 +53,11 @@ GRAYSCALE: False               # True = grayscale observations; False = full RGB
 EVAL_EPISODES: 15              # parallel eval episodes per matrix cell
 EVAL_SEED: null
 
+# Recency weighting for the Forgetting[j] metric: checkpoints soon after task j count more
+# than checkpoints long after (MEAL-style; their paper doesn't publish a value for this).
+# 0 = plain unweighted mean over later checkpoints.
+FORGETTING_LAMBDA: 1.0
+
 # On: also fill j > i (forward transfer to tasks not yet trained on). Roughly doubles
 # the number of eval() calls.
 EVAL_FULL_MATRIX: False

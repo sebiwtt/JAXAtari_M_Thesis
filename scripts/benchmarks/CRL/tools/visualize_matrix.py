@@ -4,16 +4,17 @@
 # Loads a run directory's matrix.{npz,json} (as saved by ppo_crl_continual.py) and
 # renders a single multi-panel figure summarizing continual-learning performance:
 #
-#   1. Drop heatmap          Drop[i,j] = max(0, (R[j,j]-max(R[i,j],R_rand[j])) / (R[j,j]-R_rand[j]))
-#                           (j < i), bounded to [0,1]. 0.0 = no forgetting, 1.0 = fully
-#                           forgotten (at or below the random-agent floor). MEAL/COOM-style:
-#                           the agent is compared to its own post-task-j performance, not to
-#                           a converged reference, so no convergence assumption is needed -
-#                           R_rand here only rescales/clamps the range.
-#   2. Raw-return heatmap    R[i,j], with the R_rand random-agent floor as a top row.
-#   3. Forgetting curves     one line per task j: drop on task j as later tasks i>j
+#   1. Retention heatmap     Retention[i,j] = clip((R[i,j]-R_rand[j]) / (R[j,j]-R_rand[j]), 0, 1)
+#                           (j <= i). 1.0 = fully retained, 0.0 = at/below random.
+#   2. Drop heatmap          Drop[i,j] = 1 - Retention[i,j]                        (j < i only)
+#                           0.0 = no forgetting, 1.0 = fully forgotten - the same data as the
+#                           Retention heatmap, restricted to already-trained tasks and flipped,
+#                           so later-task improvement on task j reads as "no forgetting"
+#                           rather than a >1.0 retention value.
+#   3. Raw-return heatmap    R[i,j], with the R_rand random-agent floor as a top row.
+#   4. Forgetting curves     one line per task j: drop on task j as later tasks i>j
 #                            are learned (shows *how fast* each task degrades).
-#   4. Aggregate metrics     final avg performance, mean forgetting, backward transfer.
+#   5. Aggregate metrics     final avg performance/retention, mean forgetting, backward transfer.
 #
 # Usage:
 #   python tools/visualize_matrix.py runs/pong_ppo_crl_continual_pixel_1
@@ -59,6 +60,7 @@ def load_matrix(run_dir: str) -> dict:
         return {
             "R": np.array(d["R"], dtype=float),
             "R_rand": np.array(d["R_rand"], dtype=float),
+            "Retention": np.array(d["Retention"], dtype=float),
             "Drop": np.array(d["Drop"], dtype=float),
             "Forgetting": np.array(d["Forgetting"], dtype=float),
             "mean_forgetting": float(d["mean_forgetting"]),
@@ -71,6 +73,7 @@ def load_matrix(run_dir: str) -> dict:
         return {
             "R": z["R"].astype(float),
             "R_rand": z["R_rand"].astype(float),
+            "Retention": z["Retention"].astype(float),
             "Drop": z["Drop"].astype(float),
             "Forgetting": z["Forgetting"].astype(float),
             "mean_forgetting": float(z["mean_forgetting"]),
@@ -96,12 +99,29 @@ def _annotate_heatmap(ax, M, fmt="{:.2f}", threshold=None):
                     color=color, fontsize=8)
 
 
+def plot_retention_heatmap(ax, Retention, labels):
+    n = len(labels)
+    # Diverging: red (at/below random, 0.0) -> yellow (half) -> green (fully retained, 1.0),
+    # neutral midpoint at 0.5. Already clamped to [0,1] upstream (ppo_crl_continual.py).
+    norm = TwoSlopeNorm(vmin=0.0, vcenter=0.5, vmax=1.0)
+    im = ax.imshow(Retention, cmap="RdYlGn", norm=norm, aspect="equal")
+    _annotate_heatmap(ax, Retention, threshold=0.5)
+
+    ax.set_xticks(range(n), labels, rotation=45, ha="right", fontsize=8)
+    ax.set_yticks(range(n), labels, fontsize=8)
+    ax.set_xlabel("evaluated on task j")
+    ax.set_ylabel("trained through task i")
+    ax.set_title("Retention  (1.0 = fully retained, 0.0 = at/below random)")
+    cbar = ax.figure.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
+    cbar.set_label("retention")
+
+
 def plot_drop_heatmap(ax, Drop, labels):
     n = len(labels)
     # Diverging: green (no forgetting, 0.0) -> yellow (half) -> red (fully forgotten, 1.0),
-    # neutral midpoint at 0.5. Color clamps to [0,1]; annotations show true values.
+    # neutral midpoint at 0.5. Already clamped to [0,1] upstream (ppo_crl_continual.py).
     norm = TwoSlopeNorm(vmin=0.0, vcenter=0.5, vmax=1.0)
-    im = ax.imshow(np.clip(Drop, 0.0, 1.0), cmap="RdYlGn_r", norm=norm, aspect="equal")
+    im = ax.imshow(Drop, cmap="RdYlGn_r", norm=norm, aspect="equal")
     _annotate_heatmap(ax, Drop, threshold=0.5)
 
     ax.set_xticks(range(n), labels, rotation=45, ha="right", fontsize=8)
@@ -159,18 +179,22 @@ def plot_forgetting_curves(ax, Drop, labels):
         ax.legend(fontsize=7, loc="lower left")
 
 
-def compute_metrics(R, mean_forgetting, labels):
+def compute_metrics(R, Retention, mean_forgetting, labels):
     """Standard continual-learning summary scalars."""
     n = len(labels)
     diag = np.diag(R)
     last_row = R[n - 1, :]  # final agent evaluated on every task
 
+    # Average retention over the below-diagonal cells actually filled (j < i).
+    lower = [Retention[i, j] for i in range(n) for j in range(i) if np.isfinite(Retention[i, j])]
     # Backward transfer: how final performance on an earlier task compares to right
     # after it was learned. Negative = forgetting, positive = later tasks helped it.
     bwt = [R[n - 1, j] - diag[j] for j in range(n - 1) if np.isfinite(R[n - 1, j]) and np.isfinite(diag[j])]
 
     return {
         "final_avg_return": float(np.nanmean(last_row)),
+        "final_avg_retention": float(np.nanmean(Retention[n - 1, :])),
+        "avg_retention_lower": float(np.mean(lower)) if lower else float("nan"),
         "mean_forgetting": mean_forgetting,
         "backward_transfer": float(np.mean(bwt)) if bwt else float("nan"),
     }
@@ -180,6 +204,8 @@ def plot_metrics_panel(ax, metrics):
     ax.axis("off")
     lines = [
         ("Final avg return", f"{metrics['final_avg_return']:.2f}"),
+        ("Final avg retention", f"{metrics['final_avg_retention']:.3f}"),
+        ("Avg retention (j<i)", f"{metrics['avg_retention_lower']:.3f}"),
         ("Mean forgetting", f"{metrics['mean_forgetting']:.3f}"),
         ("Backward transfer", f"{metrics['backward_transfer']:.2f}"),
     ]
@@ -189,20 +215,22 @@ def plot_metrics_panel(ax, metrics):
         ax.text(0.02, y, name, fontsize=10, va="center")
         ax.text(0.98, y, val, fontsize=11, va="center", ha="right", fontweight="bold",
                 family="monospace")
-        y -= 0.18
+        y -= 0.15
 
 
 def visualize(run_dir: str, out_path: str | None, show: bool) -> str:
     data = load_matrix(run_dir)
-    R, R_rand, Drop = data["R"], data["R_rand"], data["Drop"]
+    R, R_rand, Retention, Drop = data["R"], data["R_rand"], data["Retention"], data["Drop"]
     labels = data["labels"]
-    metrics = compute_metrics(R, data["mean_forgetting"], labels)
+    metrics = compute_metrics(R, Retention, data["mean_forgetting"], labels)
 
-    fig, axes = plt.subplots(2, 2, figsize=(14, 12))
-    plot_drop_heatmap(axes[0, 0], Drop, labels)
-    plot_return_heatmap(axes[0, 1], R, R_rand, labels)
+    fig, axes = plt.subplots(2, 3, figsize=(20, 12))
+    plot_retention_heatmap(axes[0, 0], Retention, labels)
+    plot_drop_heatmap(axes[0, 1], Drop, labels)
+    plot_return_heatmap(axes[0, 2], R, R_rand, labels)
     plot_forgetting_curves(axes[1, 0], Drop, labels)
     plot_metrics_panel(axes[1, 1], metrics)
+    axes[1, 2].axis("off")
 
     fig.suptitle(
         f"{data['env_id']}  |  {data['exp_name']}  |  {len(labels)} tasks",

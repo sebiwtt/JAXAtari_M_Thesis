@@ -16,20 +16,29 @@
 #   R[i, j]         = return of the agent trained through task i, evaluated on task j  (j <= i)
 #   R_rand[j]       = return of a fresh/untrained agent on task j - the "knows nothing" floor,
 #                     not 0 (Pong's random-policy floor is close to -21)
-#   Drop[i, j]      = max(0, (R[j,j] - max(R[i,j], R_rand[j])) / (R[j,j] - R_rand[j]))  (j < i)
-#                     how much of task j's post-training performance (relative to the
-#                     R_rand[j]..R[j,j] range) was lost by the time task i was reached.
-#                     Current performance is floored at R_rand[j] before the ratio, so it's
-#                     mathematically bounded to [0, 1] - can't register as "worse than random"
-#                     or "more than fully forgotten". Floored at 0 too, so later improvement on
-#                     task j (positive backward transfer) reads as "no forgetting", not a
-#                     negative drop. MEAL/COOM-style: the agent is compared to itself (not a
-#                     fixed converged reference), so unlike the old R_rand-normalized Retention
-#                     this needs no assumption that R[j,j] is a converged ceiling - R_rand here
-#                     only rescales/clamps the range, it isn't the thing being converged to.
-#   Forgetting[j]   = unweighted mean of Drop[i, j] over every later checkpoint i > j
-#                     (MEAL uses a recency-weighted average instead; this is the simpler,
-#                     unweighted version). The last task has no later checkpoint -> NaN.
+#   Retention[i, j] = clip((R[i,j] - R_rand[j]) / (R[j,j] - R_rand[j]), 0, 1)         (j <= i)
+#                     1.0 = matches post-task-j performance, 0.0 = at/below random. Clamped
+#                     both directions (unlike the pre-refactor version on master, which left
+#                     this unbounded and could read e.g. 1.47 when a later task happened to
+#                     improve task j beyond its own post-training checkpoint).
+#   Drop[i, j]      = 1 - Retention[i, j]                                            (j < i)
+#                     the complement of Retention, restricted to already-trained tasks;
+#                     how much of task j's performance was lost by the time task i was
+#                     reached. MEAL/COOM-style: the agent is compared to itself, not to a
+#                     fixed converged reference - R_rand only rescales/clamps the range, so
+#                     this needs no assumption that R[j,j] is a converged ceiling.
+#   Forgetting[j]   = recency-weighted mean of Drop[i, j] over every later checkpoint i > j:
+#                     weight(i) = exp(-FORGETTING_LAMBDA * (i-j)/(last_task-j)), so checkpoints
+#                     soon after task j count more than ones long after (MEAL-style; their
+#                     paper doesn't publish the lambda they use). FORGETTING_LAMBDA=0 recovers
+#                     the plain unweighted mean. The last task has no later checkpoint -> NaN,
+#                     left as-is rather than padded with an extra "finale" task.
+#   mean_forgetting = nanmean(Forgetting) over all tasks except the last.
+#   mean_retention  = 1 - mean_forgetting. NOT the same as a flat per-cell average of
+#                     Retention (which would implicitly weight tasks with more later
+#                     checkpoints - i.e. earlier tasks - more heavily); this uses the same
+#                     per-task-then-across-tasks averaging as mean_forgetting, so it's an
+#                     exact complement.
 #
 # EVAL_FULL_MATRIX also fills j > i: forward transfer to not-yet-trained tasks.
 #
@@ -273,39 +282,52 @@ def run_continual(config: dict) -> None:
     if os.path.exists(eval_tmp_path):
         os.remove(eval_tmp_path)
 
-    # MEAL-style forgetting (unweighted): the agent is compared to *itself*, not to a
-    # converged reference, so this needs no assumption that R[j,j] is a true ceiling - it
-    # only asks "did task j get worse later than it was right after training it." R_rand
-    # comes back in here only to floor/rescale the range (see module docstring), which
-    # bounds Drop to [0, 1] instead of letting it blow past 1 when raw returns go negative.
-    diag = np.diag(R)  # R[j, j]: performance right after finishing task j - the reference
+    # Retention (clamped to [0,1], unlike master's version) and its complement Drop, from
+    # which the MEAL-style unweighted Forgetting[j] is derived. Both come out of the same
+    # R/R_rand data already computed above - no extra evals needed.
+    diag = np.diag(R)  # R[j, j]: performance right after finishing task j
+    Retention = np.full((num_tasks, num_tasks), np.nan)
     Drop = np.full((num_tasks, num_tasks), np.nan)
     for i in range(num_tasks):
-        for j in range(i):  # j < i only: forgetting is only defined for already-trained tasks
+        for j in (range(num_tasks) if config.get("EVAL_FULL_MATRIX", False) else range(i + 1)):
             denom = diag[j] - R_rand[j]
             if denom <= 0:
                 print(
                     f"[CRL] WARNING: R[{j},{j}]={diag[j]:.3f} <= R_rand[{j}]={R_rand[j]:.3f}; "
-                    f"Drop[{i},{j}] is undefined, leaving as NaN."
+                    f"Retention[{i},{j}] is undefined, leaving as NaN."
                 )
                 continue
-            if np.isnan(R[i, j]):
-                continue
-            clamped = max(R[i, j], R_rand[j])
-            Drop[i, j] = max(0.0, (diag[j] - clamped) / denom)
+            Retention[i, j] = float(np.clip((R[i, j] - R_rand[j]) / denom, 0.0, 1.0))
+            if j < i:  # Drop/forgetting only defined for already-trained tasks
+                Drop[i, j] = 1.0 - Retention[i, j]
 
+    # MEAL-style recency weighting: later checkpoints (further past task j's own training)
+    # count less than checkpoints reached soon after. FORGETTING_LAMBDA=0 recovers the
+    # plain unweighted mean (all weights equal to 1); MEAL doesn't publish the value they
+    # use, so this defaults to 1.0 - a moderate decay, not derived from their paper.
+    forgetting_lambda = float(config.get("FORGETTING_LAMBDA", 1.0))
+    last_task = num_tasks - 1
     Forgetting = np.full(num_tasks, np.nan)
     for j in range(num_tasks - 1):
-        later_drops = Drop[j + 1:, j]
-        later_drops = later_drops[~np.isnan(later_drops)]
-        if later_drops.size:
-            Forgetting[j] = float(later_drops.mean())
+        later_i = np.arange(j + 1, num_tasks)
+        later_drops = Drop[later_i, j]
+        valid = ~np.isnan(later_drops)
+        if not valid.any():
+            continue
+        later_i, later_drops = later_i[valid], later_drops[valid]
+        weights = np.exp(-forgetting_lambda * (later_i - j) / (last_task - j))
+        Forgetting[j] = float(np.sum(weights * later_drops) / np.sum(weights))
     mean_forgetting = float(np.nanmean(Forgetting)) if num_tasks > 1 else float("nan")
+    # Same per-task-equal-weight averaging as mean_forgetting, so this is exactly its
+    # complement - not the same as a flat per-cell average over Retention (which would
+    # implicitly weight tasks with more later checkpoints more heavily).
+    mean_retention = 1.0 - mean_forgetting
 
     _print_matrix("R (mean return)", R, labels)
     _print_vector("R_rand (random-agent floor)", R_rand, labels)
-    _print_vector("Forgetting (per task, avg drop over later checkpoints)", Forgetting, labels)
-    print(f"\n[CRL] mean forgetting across tasks: {mean_forgetting:.4f}")
+    _print_matrix("Retention (clamped to [0,1])", Retention, labels)
+    _print_vector(f"Forgetting (per task, recency-weighted avg drop, lambda={forgetting_lambda})", Forgetting, labels)
+    print(f"\n[CRL] mean forgetting across tasks: {mean_forgetting:.4f}  (mean retention: {mean_retention:.4f})")
 
     # Wall-clock, GPU-inclusive: train_task/evaluate are synchronous Python calls
     # that already force a device sync (train()'s per-iteration .item() calls;
@@ -325,9 +347,11 @@ def run_continual(config: dict) -> None:
         f"{run_dir}/matrix.npz",
         R=R,
         R_rand=R_rand,
+        Retention=Retention,
         Drop=Drop,
         Forgetting=Forgetting,
         mean_forgetting=np.array(mean_forgetting),
+        mean_retention=np.array(mean_retention),
         task_mods=np.array([json.dumps(m) for m in task_mods_list]),
         labels=np.array(labels),
         env_id=np.array(config["ENV_ID"]),
@@ -347,9 +371,11 @@ def run_continual(config: dict) -> None:
                 "labels": labels,
                 "R": R.tolist(),
                 "R_rand": R_rand.tolist(),
+                "Retention": Retention.tolist(),
                 "Drop": Drop.tolist(),
                 "Forgetting": Forgetting.tolist(),
                 "mean_forgetting": mean_forgetting,
+                "mean_retention": mean_retention,
                 "checkpoints": ckpt_paths,
                 "random_agent_checkpoint": rand_ckpt_path,
                 "compute_time_sec": {
@@ -371,13 +397,14 @@ def run_continual(config: dict) -> None:
             wandb.log({f"crl/R_rand/{j}": R_rand[j]})
         for i in range(num_tasks):
             for j in (range(num_tasks) if config.get("EVAL_FULL_MATRIX", False) else range(i + 1)):
-                wandb.log({f"crl/R/{i}_{j}": R[i, j]})
+                wandb.log({f"crl/R/{i}_{j}": R[i, j], f"crl/retention/{i}_{j}": Retention[i, j]})
             wandb.log({f"crl/diag/{i}": R[i, i]})
         for j in range(num_tasks):
             if not np.isnan(Forgetting[j]):
                 wandb.log({f"crl/forgetting/{j}": Forgetting[j]})
         wandb.log({
             "crl/mean_forgetting": mean_forgetting,
+            "crl/mean_retention": mean_retention,
             "crl/compute_time/train_total_sec": total_train_time,
             "crl/compute_time/eval_total_sec": total_eval_time,
             "crl/compute_time/total_sec": total_compute_time,
