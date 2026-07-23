@@ -454,14 +454,36 @@ class FlattenRowValuesMod(JaxAtariInternalModPlugin):
         return broke_brick.astype(jnp.int32)
 
 
+class SurvivalRewardMod(JaxAtariInternalModPlugin):
+    """
+    Rewards +_PER_STEP every step regardless of bricks broken, replacing the
+    score-based reward entirely: the objective becomes purely "keep the ball in play
+    as long as possible". The episode ends when lives run out, so a flat per-step
+    reward already *is* reward-for-time-alive (the loop stops calling step() once
+    done), and it survives sign-clipping as +1 on every frame-skip window.
+
+    Chosen over a top-row-selective reward because breakout's ball almost never
+    reaches the top rows: measured over 6000 steps of competent play the row-hit
+    counts were bottom=126, middle=15, top=0. A top-row-only reward therefore yields
+    a literally zero training signal, which also leaves the retention/forgetting
+    denominator (R[j,j] - R_rand[j]) undefined.
+    """
+    _PER_STEP = 1
+
+    @partial(jax.jit, static_argnums=(0,))
+    def _get_reward(self, previous_state: BreakoutState, state: BreakoutState):
+        return jnp.array(self._PER_STEP, dtype=jnp.int32)
+
+
 class TopRowOnlyMod(JaxAtariInternalModPlugin):
     """
     Only TOP-row bricks score (+1); middle and bottom rows pay nothing (0). The base
-    score delta reveals the row (7=top, 4=middle, 1=bottom). This is the opposite
-    priority to BottomRowFirstMod, and -- unlike an all-positive "top worth more"
-    scheme, which sign-clipping would collapse back to the base "+1 per brick" -- it
-    zeroes the lower rows so the clipped signal genuinely differs from base: the
-    agent is rewarded only for digging up to and clearing the top rows.
+    score delta reveals the row (7=top, 4=middle, 1=bottom).
+
+    NOT USABLE as a CRL task: the ball essentially never reaches the top rows
+    (measured 0 top-row hits in 6000 steps of competent play), so this gives a zero
+    training signal and an undefined retention denominator. Kept for reference /
+    unclipped experiments; use SurvivalRewardMod in the rew4 sequence instead.
     """
     @partial(jax.jit, static_argnums=(0,))
     def _get_reward(self, previous_state: BreakoutState, state: BreakoutState):

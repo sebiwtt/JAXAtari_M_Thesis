@@ -34,6 +34,8 @@ import matplotlib
 matplotlib.use("Agg")  # switched to an interactive backend below if --show is set
 import matplotlib.pyplot as plt
 from matplotlib.colors import TwoSlopeNorm
+from matplotlib.lines import Line2D
+from matplotlib.patches import Patch
 
 # Okabe-Ito colorblind-safe categorical palette, assigned in fixed order (one hue per
 # task, never cycled). Supports up to 8 tasks distinctly; beyond that they repeat.
@@ -179,6 +181,71 @@ def plot_forgetting_curves(ax, Drop, labels):
         ax.legend(fontsize=7, loc="lower left")
 
 
+def plot_forgetting_bars(ax, Drop, Forgetting, mean_forgetting, labels):
+    """Per-task performance drop, grouped by task.
+
+    One group per task j (the skill being retained); within a group one bar per
+    later training stage i > j, height = Drop[i, j]. Training stages are *ordered*,
+    so they are encoded with a sequential single-hue ramp (light = trained soon
+    after, dark = trained much later) rather than categorical hues. The black tick
+    per group is that task's aggregate Forgetting[j] (the recency-weighted mean the
+    metric reports); the dashed line is mean_forgetting across tasks.
+    """
+    n = len(labels)
+    max_bars = max(1, n - 1)
+    width = 0.8 / max_bars
+    # Sequential ramp, one hue light->dark, sampled away from the near-white end
+    # so every step stays legible against the surface.
+    ramp = plt.get_cmap("Blues")
+    stage_color = {i: ramp(0.35 + 0.55 * (i - 1) / max(1, max_bars - 1)) for i in range(1, n)}
+
+    tick_pos = []
+    for j in range(n):
+        stages = [i for i in range(j + 1, n) if np.isfinite(Drop[i, j])]
+        if not stages:
+            tick_pos.append(j - 0.4 + 0.5 * width)  # keep the label over where bars would start
+            ax.text(j - 0.4 + 0.5 * width, 0.02, "n/a\n(last task)", ha="center", va="bottom",
+                    fontsize=7, color="#888888", style="italic")
+            continue
+        x_start = j - 0.4
+        x_end = x_start + len(stages) * width
+        tick_pos.append((x_start + x_end) / 2)  # label centred under this group's actual bars
+        for k, i in enumerate(stages):
+            x = x_start + (k + 0.5) * width
+            ax.bar(x, Drop[i, j], width=width * 0.88,  # 2px-equivalent gap between bars
+                   color=stage_color[i], edgecolor="white", linewidth=0.6, zorder=3)
+            ax.text(x, Drop[i, j] + 0.015, f"{Drop[i, j]:.2f}", ha="center", va="bottom",
+                    fontsize=6, color="#444444", zorder=4)
+        if np.isfinite(Forgetting[j]):
+            # span only this group's bars, so the tick reads as belonging to them
+            ax.plot([x_start, x_end], [Forgetting[j]] * 2, color="black",
+                    linewidth=1.8, solid_capstyle="butt", zorder=5)
+
+    if np.isfinite(mean_forgetting):
+        ax.axhline(mean_forgetting, color="#666666", linestyle="--", linewidth=1,
+                   alpha=0.8, zorder=2)
+        ax.text(n - 0.45, mean_forgetting + 0.015, f"mean {mean_forgetting:.3f}",
+                ha="right", va="bottom", fontsize=7, color="#666666")
+
+    # Legend: stages (identity is never color-alone -- groups are axis-labelled too)
+    handles = [Patch(facecolor=stage_color[i], edgecolor="white", label=f"after {labels[i]}")
+               for i in range(1, n)]
+    handles.append(Line2D([0], [0], color="black", lw=1.8, label="task forgetting (mean)"))
+    ax.legend(handles=handles, fontsize=6.5, loc="upper left", framealpha=0.9, ncol=1)
+
+    ax.set_xticks(tick_pos, labels, rotation=45, ha="right", fontsize=8)
+    ax.set_xlim(-0.6, n - 0.4)
+    ax.set_ylim(0, 1.05)
+    ax.set_xlabel("task whose performance is measured")
+    ax.set_ylabel("performance drop")
+    ax.set_title("Performance drop per task, by training stage\n(0 = no forgetting, 1 = fully forgotten)",
+                 fontsize=10)
+    ax.grid(axis="y", alpha=0.25, zorder=0)
+    ax.set_axisbelow(True)
+    for side in ("top", "right"):
+        ax.spines[side].set_visible(False)
+
+
 def compute_metrics(R, Retention, mean_forgetting, labels):
     """Standard continual-learning summary scalars."""
     n = len(labels)
@@ -230,7 +297,7 @@ def visualize(run_dir: str, out_path: str | None, show: bool) -> str:
     plot_return_heatmap(axes[0, 2], R, R_rand, labels)
     plot_forgetting_curves(axes[1, 0], Drop, labels)
     plot_metrics_panel(axes[1, 1], metrics)
-    axes[1, 2].axis("off")
+    plot_forgetting_bars(axes[1, 2], Drop, data["Forgetting"], data["mean_forgetting"], labels)
 
     fig.suptitle(
         f"{data['env_id']}  |  {data['exp_name']}  |  {len(labels)} tasks",
@@ -248,16 +315,36 @@ def visualize(run_dir: str, out_path: str | None, show: bool) -> str:
     return out_path
 
 
+def visualize_bars(run_dir: str, out_path: str | None) -> str:
+    """Save the per-task performance-drop bar chart on its own (for slides/reports)."""
+    data = load_matrix(run_dir)
+    fig, ax = plt.subplots(figsize=(10, 6))
+    plot_forgetting_bars(ax, data["Drop"], data["Forgetting"], data["mean_forgetting"], data["labels"])
+    fig.suptitle(f"{data['env_id']}  |  {data['exp_name']}", fontsize=12, fontweight="bold")
+    fig.tight_layout(rect=(0, 0, 1, 0.96))
+    if out_path is None:
+        out_path = os.path.join(run_dir, "forgetting_bars.png")
+    fig.savefig(out_path, dpi=200, bbox_inches="tight")
+    print(f"[viz] saved bar chart to {out_path}")
+    return out_path
+
+
 def main():
-    parser = argparse.ArgumentParser(description="Visualize a CRL retention matrix.")
+    parser = argparse.ArgumentParser(description="Visualize a CRL retention/forgetting matrix.")
     parser.add_argument("run_dir", help="run directory containing matrix.json / matrix.npz")
     parser.add_argument("--out", default=None, help="output image path (default: <run_dir>/visualization.png)")
     parser.add_argument("--show", action="store_true", help="also open an interactive window")
+    parser.add_argument("--bars", action="store_true",
+                        help="also save the per-task performance-drop bar chart standalone "
+                             "(default: <run_dir>/forgetting_bars.png)")
+    parser.add_argument("--bars-out", default=None, help="output path for the standalone bar chart")
     args = parser.parse_args()
 
     if args.show:
         matplotlib.use("TkAgg", force=True)  # noqa: needs re-import of pyplot backend
     visualize(args.run_dir, args.out, args.show)
+    if args.bars or args.bars_out:
+        visualize_bars(args.run_dir, args.bars_out)
 
 
 if __name__ == "__main__":

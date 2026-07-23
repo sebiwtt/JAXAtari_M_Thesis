@@ -6,9 +6,10 @@ SEQUENCE: rew4
 TASK_MODS:
   - []
   - ["ball_loss_penalty"]
-  - ["top_row_only"]
+  - ["survival_reward"]
   - ["every_k_contacts"]
   - ["bottom_row_first"]
 
 # --- More Options ---
 # flatten_row_values  
+# top_row_only -> yields 0 reward -> useless
