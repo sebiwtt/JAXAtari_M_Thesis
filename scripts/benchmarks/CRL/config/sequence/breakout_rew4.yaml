@@ -6,11 +6,9 @@ SEQUENCE: rew4
 TASK_MODS:
   - []
   - ["ball_loss_penalty"]
-  - ["flatten_row_values"]
+  - ["top_row_only"]
   - ["every_k_contacts"]
   - ["bottom_row_first"]
 
 # --- More Options ---
-# 
-
-# Can we increase penalties or make difference "bigger"?
+# flatten_row_values  

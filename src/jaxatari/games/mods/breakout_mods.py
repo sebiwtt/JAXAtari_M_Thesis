@@ -17,6 +17,7 @@ from jaxatari.games.mods.breakout.breakout_mod_plugins import (
     RoundPaddleMod,
     BallLossPenaltyMod,
     FlattenRowValuesMod,
+    TopRowOnlyMod,
     EveryKContactsMod,
     BottomRowFirstMod,
     FasterBallMod,
@@ -58,6 +59,7 @@ class BreakoutEnvMod(JaxAtariModController):
         # Reward
         "ball_loss_penalty": BallLossPenaltyMod,
         "flatten_row_values": FlattenRowValuesMod,
+        "top_row_only": TopRowOnlyMod,
         "every_k_contacts": EveryKContactsMod,
         "bottom_row_first": BottomRowFirstMod,
 

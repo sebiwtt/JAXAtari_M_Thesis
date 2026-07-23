@@ -6,10 +6,12 @@ SEQUENCE: rew4
 TASK_MODS:
   - []
   - ["life_loss_penalty"]
-  - ["flatten_asteroid_values"]
+  - ["large_asteroid_only"]
   - ["small_asteroid_only"]
   - ["survival_reward"]
 
 # --- More Options ---
 # every_k_kills
 # wave_clear_bonus
+# flatten_asteroid_values  # NOTE: no-op under sign-clipped training reward (base
+#                          # 20/50/100 all clip to +1); use only with clipping off.

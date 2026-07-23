@@ -5,13 +5,15 @@ ENV_ID: asteroids
 SEQUENCE: dyn4
 TASK_MODS:
   - []
-  - ["faster_asteroids"] # make them even faster
-  - ["faster_ship"] # make it even faster
-  - ["randomize_asteroid_spawn"] # instead also spawn more (like a lot)
-  - ["ship_inertia"] # tweak this even more / or swap with dont_shoot
+  - ["faster_asteroids"] # 3x speed -> (6,3) px/frame
+  - ["faster_ship"] # 3x thrust + top speed
+  - ["more_asteroids"] # dense field: 10 initial + 12/wave (vs 4 + 6)
+  - ["ship_inertia"] # frictionless flight
 
 # --- More Options ---
+# randomize_asteroid_spawn  # (reshuffles the 4 starting asteroids' positions)
 # slower_asteroids
 # slower_ship
 # dont_shoot
 # instant_turn
+

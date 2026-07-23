@@ -3,7 +3,7 @@ from functools import partial
 import jax
 import jax.numpy as jnp
 from jaxatari.modification import JaxAtariModController
-from jaxatari.games.mods.asteroids.asteroids_mod_plugins import DontShootMod, MatrixMod, InstantTurnMod, ChangeShipColorMod, ChangeAsteroidColorMod, ChangeBackgroundColorMod, ChangeScoreColorMod, GrayscaleThemeMod, NoFlickerMod, FasterAsteroidsMod, SlowerAsteroidsMod, FasterShipMod, SlowerShipMod, RandomizeAsteroidSpawnMod, ShipInertiaMod, LifeLossPenaltyMod, FlattenAsteroidValuesMod, SmallAsteroidOnlyMod, WaveClearBonusMod, EveryKKillsMod, SurvivalRewardMod
+from jaxatari.games.mods.asteroids.asteroids_mod_plugins import DontShootMod, MatrixMod, InstantTurnMod, ChangeShipColorMod, ChangeAsteroidColorMod, ChangeBackgroundColorMod, ChangeScoreColorMod, GrayscaleThemeMod, NoFlickerMod, FasterAsteroidsMod, SlowerAsteroidsMod, FasterShipMod, SlowerShipMod, RandomizeAsteroidSpawnMod, MoreAsteroidsMod, ShipInertiaMod, LifeLossPenaltyMod, FlattenAsteroidValuesMod, LargeAsteroidOnlyMod, SmallAsteroidOnlyMod, WaveClearBonusMod, EveryKKillsMod, SurvivalRewardMod
 
 class AsteroidsEnvMod(JaxAtariModController):
     """
@@ -26,6 +26,7 @@ class AsteroidsEnvMod(JaxAtariModController):
         "faster_ship": FasterShipMod,
         "slower_ship": SlowerShipMod,
         "randomize_asteroid_spawn": RandomizeAsteroidSpawnMod,
+        "more_asteroids": MoreAsteroidsMod,
         "ship_inertia": ShipInertiaMod,
         "dont_shoot": DontShootMod,
         "instant_turn": InstantTurnMod,
@@ -33,6 +34,7 @@ class AsteroidsEnvMod(JaxAtariModController):
         # Reward
         "life_loss_penalty": LifeLossPenaltyMod,
         "flatten_asteroid_values": FlattenAsteroidValuesMod,
+        "large_asteroid_only": LargeAsteroidOnlyMod,
         "small_asteroid_only": SmallAsteroidOnlyMod,
         "wave_clear_bonus": WaveClearBonusMod,
         "every_k_kills": EveryKKillsMod,

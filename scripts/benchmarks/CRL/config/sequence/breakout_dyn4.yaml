@@ -5,10 +5,10 @@ ENV_ID: breakout
 SEQUENCE: dyn4
 TASK_MODS:
   - []
-  - ["faster_ball"] # make this even faster
-  - ["faster_paddle"] # make this even faster
-  - ["random_serve"] # increase randomness some more or angle or something
-  - ["ball_drift"] # add even more drift (but keep it playable)
+  - ["faster_ball"] 
+  - ["faster_paddle"] 
+  - ["random_serve"] 
+  - ["ball_drift"]
 
 # --- More Options ---
 # slower_ball

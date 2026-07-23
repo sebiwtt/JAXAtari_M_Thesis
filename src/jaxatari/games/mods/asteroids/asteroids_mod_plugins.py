@@ -249,14 +249,18 @@ _BASE_MAX_PLAYER_SPEED = 60 * 256 - 1
 
 class FasterAsteroidsMod(JaxAtariInternalModPlugin):
     """
-    Makes asteroids faster by scaling ASTEROID_SPEED (default (2, 1): 2 px
+    Makes asteroids much faster by scaling ASTEROID_SPEED (default (2, 1): 2 px
     horizontal on periodic side-step frames, 1 px vertical every frame) by
-    _SPEED_MULTIPLIER. Kept modest -- asteroid-vs-player/missile collision is a
-    same-frame bounding-box check with no swept collision, and asteroid sprites
-    are large (16-28 px), so a jump much bigger than the multiplier used here
-    risks skipping over a small missile/ship hitbox between frames.
+    _SPEED_MULTIPLIER, giving (6, 3) -- asteroids rush down at 3 px/frame.
+
+    Collision is a same-frame bounding-box check with no swept collision, but this
+    stays safe: the smallest asteroid is 8 px tall / 4 px wide and the ship is
+    10 px tall / 5 px wide, so even the 3 px vertical step (asteroid+ship spans
+    18 px) and the 6 px side-step (spans 9 px) still overlap for multiple frames
+    when passing -- nothing tunnels. Verified empirically: destroy rate stays
+    healthy (missiles still connect) at this multiplier.
     """
-    _SPEED_MULTIPLIER = 2
+    _SPEED_MULTIPLIER = 3
 
     constants_overrides = {
         "ASTEROID_SPEED": (2 * _SPEED_MULTIPLIER, 1 * _SPEED_MULTIPLIER),
@@ -293,9 +297,10 @@ class FasterShipMod(JaxAtariInternalModPlugin):
     (MAX_PLAYER_SPEED) by _SPEED_MULTIPLIER. Unlike a paddle with a slow
     acceleration ramp, thrust here is a constant per-frame acceleration, so
     scaling it is immediately noticeable (faster speed buildup, not just a
-    higher ceiling that's rarely reached).
+    higher ceiling that's rarely reached). At 3x the ship is very zippy and
+    overshoots easily -- a large shift in control feel, not a subtle nudge.
     """
-    _SPEED_MULTIPLIER = 2.0
+    _SPEED_MULTIPLIER = 3.0
 
     constants_overrides = {
         "ACCEL_PER_ROTATION": (_BASE_ACCEL_PER_ROTATION * _SPEED_MULTIPLIER).astype(jnp.int32),
@@ -349,6 +354,53 @@ class RandomizeAsteroidSpawnMod(JaxAtariPostStepModPlugin):
         return obs, state.replace(asteroid_states=new_asteroid_states, rng_key=key)
 
 
+# A dense 10-asteroid starting layout (base has 4). All large (size 1/2), spread
+# around the periphery so none overlaps the player's spawn safe zone: the ship
+# starts dead-centre at screen (80, 100) with no spawn invulnerability, so every
+# asteroid is kept clear of the box x[60,100] x y[66,134]. Rows are [x, y, rot(0-3),
+# size(1|2), color(0-7)]; the remaining 7 of the 17 slots stay INACTIVE, leaving
+# room for split fragments.
+_DENSE_INITIAL_ASTEROIDS = jnp.array([
+    [ 20,  30, 0, 1, 0],
+    [ 80,  25, 1, 2, 1],
+    [140,  30, 2, 1, 2],
+    [ 15, 100, 3, 2, 3],
+    [145, 100, 0, 1, 4],
+    [ 20, 170, 1, 2, 5],
+    [ 80, 180, 2, 1, 6],
+    [145, 175, 3, 2, 7],
+    [ 40,  55, 0, 1, 0],
+    [120, 145, 2, 2, 3],
+    [  0,   0, 0, 0, 0],
+    [  0,   0, 0, 0, 0],
+    [  0,   0, 0, 0, 0],
+    [  0,   0, 0, 0, 0],
+    [  0,   0, 0, 0, 0],
+    [  0,   0, 0, 0, 0],
+    [  0,   0, 0, 0, 0],
+], dtype=jnp.int32)
+
+
+class MoreAsteroidsMod(JaxAtariInternalModPlugin):
+    """
+    Floods the field with far more asteroids than the base game, for a much
+    denser, harder-to-survive board -- a large change in the tactical situation.
+
+    Two constant overrides: the initial board starts with 10 large asteroids
+    instead of 4 (INITIAL_ASTEROID_STATES), and each cleared wave respawns 12
+    instead of 6 (NEW_ASTEROIDS_COUNT). Both stay within MAX_NUMBER_OF_ASTEROIDS
+    (17) -- which is left untouched because it defines the observation size and
+    must stay constant across the CRL task sequence -- leaving a few slots for
+    split fragments. (Replaces the old randomize_asteroid_spawn, which only
+    shuffled the same 4 starting asteroids' positions; "a lot more" asteroids is a
+    bigger, more distinct dynamics shift than reshuffling four of them.)
+    """
+    constants_overrides = {
+        "INITIAL_ASTEROID_STATES": _DENSE_INITIAL_ASTEROIDS,
+        "NEW_ASTEROIDS_COUNT": 12,
+    }
+
+
 class ShipInertiaMod(JaxAtariInternalModPlugin):
     """
     Removes the base game's built-in velocity dampening: the ship keeps its
@@ -376,18 +428,33 @@ def _destroy_masks_by_size(consts, prev_asteroid_states, new_asteroid_states):
 
 class LifeLossPenaltyMod(JaxAtariInternalModPlugin):
     """
-    Adds a -_PENALTY floor whenever the player loses a life, on top of the
-    normal score-delta reward. The base game rewards destroying asteroids but is
-    silent about losing a life, so this shifts the optimum from pure
-    destruction toward survival. A life loss is the frame `lives` decreases.
+    Penalizes losing a life, on top of the normal score-delta reward, to shift the
+    optimum from pure destruction toward survival.
+
+    The penalty is *sustained* over the first _SUSTAIN_FRAMES of the post-death
+    respawn (respawn_timer counts down from RESPAWN_DELAY=136 on a hit), giving a
+    -1 across several frame-skip windows per death instead of a single frame.
+    Under the benchmark's sign-clipped training reward a one-frame -1 would be a
+    lone negative window per death, nearly lost among the destroy rewards; a few
+    windows makes losing a life genuinely costly. It is capped (not the full
+    ~136-frame respawn) so a death costs a handful of windows, not ~34 -- which
+    would swamp the destroy reward and collapse this into a pure-survival objective
+    (that is what survival_reward is). Uses respawn_timer rather than a lives delta
+    so it is unaffected by same-frame extra-life awards (POINTS_PER_LIFE); the
+    upper bound `<= RESPAWN_DELAY` excludes the hyperspace timer (set above
+    RESPAWN_DELAY), which is not a death.
     """
-    _PENALTY = 1
+    _SUSTAIN_FRAMES = 8   # a few frame-skip windows per death: bigger than a lone -1, non-dominant
 
     @partial(jax.jit, static_argnums=(0,))
     def _get_reward(self, previous_state: AsteroidsState, state: AsteroidsState):
         base = state.score - previous_state.score
-        life_lost = state.lives < previous_state.lives
-        return (base - life_lost.astype(jnp.int32) * self._PENALTY).astype(jnp.int32)
+        c = self._env.consts
+        in_death_respawn = jnp.logical_and(
+            state.respawn_timer > c.RESPAWN_DELAY - self._SUSTAIN_FRAMES,
+            state.respawn_timer <= c.RESPAWN_DELAY,
+        )
+        return (base - in_death_respawn.astype(jnp.int32)).astype(jnp.int32)
 
 
 class FlattenAsteroidValuesMod(JaxAtariInternalModPlugin):
@@ -395,12 +462,33 @@ class FlattenAsteroidValuesMod(JaxAtariInternalModPlugin):
     Every asteroid destroyed pays +1, removing the base game's size-based
     scoring scheme (large=20, medium=50, small=100 points). Detected via the
     same size-transition logic the base game uses for real scoring.
+
+    NOTE: under sign-clipped training reward this is a NO-OP -- the base game's
+    20/50/100 all clip to +1 already, so the clipped stream is identical to base.
+    Use only with reward clipping disabled. For a clip-surviving size mod see
+    LargeAsteroidOnlyMod / SmallAsteroidOnlyMod, which zero the other sizes.
     """
     @partial(jax.jit, static_argnums=(0,))
     def _get_reward(self, previous_state: AsteroidsState, state: AsteroidsState):
         is_l, is_m, is_s = _destroy_masks_by_size(self._env.consts, previous_state.asteroid_states, state.asteroid_states)
         total_destroys = jnp.sum(is_l.astype(jnp.int32)) + jnp.sum(is_m.astype(jnp.int32)) + jnp.sum(is_s.astype(jnp.int32))
         return total_destroys.astype(jnp.int32)
+
+
+class LargeAsteroidOnlyMod(JaxAtariInternalModPlugin):
+    """
+    Rewards +1 only for destroying LARGE asteroids (the first, easiest hit that
+    splits a big rock); medium and small destroys give 0. This is the opposite
+    priority to SmallAsteroidOnlyMod, and -- unlike an all-positive size scheme
+    (which sign-clipping collapses to the base "+1 per destroy") -- it zeroes the
+    smaller sizes so the clipped signal genuinely differs from base: the agent is
+    rewarded for cracking large rocks and ignoring the fragments, rather than
+    finishing every asteroid off.
+    """
+    @partial(jax.jit, static_argnums=(0,))
+    def _get_reward(self, previous_state: AsteroidsState, state: AsteroidsState):
+        is_l, _, _ = _destroy_masks_by_size(self._env.consts, previous_state.asteroid_states, state.asteroid_states)
+        return jnp.sum(is_l.astype(jnp.int32)).astype(jnp.int32)
 
 
 class SmallAsteroidOnlyMod(JaxAtariInternalModPlugin):

@@ -37,10 +37,16 @@ class BigPaddleMod(JaxAtariInternalModPlugin):
 
 
 class BallDriftMod(JaxAtariPostStepModPlugin):
-    """Consistently drift the ball to the right."""
-    
-    # Default: drift every 3 steps, direction 1 (right)
-    _drift_buffer = 3
+    """Consistently drift the ball to the right.
+
+    Drifts +1 px every _drift_buffer steps (here every 2 -> ~0.5 px/frame rightward
+    bias). Kept at 2 rather than 1: at every-step the +1 fully cancels the ball's
+    leftward vx (1-2 px/frame) and the ball pins against the right wall; every 2
+    steps is a strong but survivable lean that the ball can still fight leftward.
+    """
+
+    # Drift every 2 steps, direction 1 (right)
+    _drift_buffer = 2
     _direction = 1
     
     @partial(jax.jit, static_argnums=(0,))
@@ -259,20 +265,24 @@ class RoundPaddleMod(JaxAtariInternalModPlugin):
 # --- Dynamics mods -----------------------------------------------------------
 class FasterBallMod(JaxAtariInternalModPlugin):
     """
-    Makes the ball faster by overriding the BALL_VELOCITIES_ABS speed table.
+    Makes the ball much faster by overriding the BALL_VELOCITIES_ABS speed table.
 
-    The ball starts at ~2 px/frame instead of 1 and stays quicker through the low
-    speed indices. The maximum is kept at 3 px/frame -- the game's existing top
-    speed -- because block collisions only bounce within 4 px of a block edge, so
-    a larger vertical step would let the ball tunnel through blocks.
+    The lever is the *horizontal* component: vx is pushed up to 4 px/frame (base
+    tops out at 2) so the ball zips side-to-side far quicker and is much harder to
+    intercept. The vertical component is deliberately held at <= 3 px/frame -- block
+    collisions only bounce within 4 px of a block edge and the ball moves its whole
+    velocity in one frame (no sub-stepping), so a vy of 4+ would let it tunnel
+    through blocks. Side walls *clamp* the ball rather than letting it pass, so the
+    high vx is safe. Table shape is [speed_idx, step_counter % 2, (vx, vy)]; the two
+    sub-rows let a speed index average a fractional px/frame.
     """
     constants_overrides = {
         "BALL_VELOCITIES_ABS": jnp.array([
-            [[2, 2], [1, 2]],   # speed 0 (was [1,1],[1,1])
-            [[2, 2], [2, 2]],   # speed 1
-            [[2, 3], [2, 2]],   # speed 2
-            [[3, 3], [3, 3]],   # speed 3
-            [[3, 3], [3, 3]],   # speed 4 (capped at 3, was [2,3])
+            [[3, 2], [3, 2]],   # speed 0: vx 3, vy 2
+            [[4, 2], [3, 2]],   # speed 1: vx ~3.5, vy 2
+            [[4, 3], [4, 2]],   # speed 2: vx 4, vy ~2.5
+            [[4, 3], [4, 3]],   # speed 3: vx 4, vy 3
+            [[4, 3], [4, 3]],   # speed 4: vx 4, vy 3 (vy capped at 3 to avoid tunneling)
         ])
     }
 
@@ -300,16 +310,17 @@ class SlowerBallMod(JaxAtariInternalModPlugin):
 
 class FasterPaddleMod(JaxAtariInternalModPlugin):
     """
-    Makes the paddle noticeably faster. Raising only PLAYER_MAX_SPEED is barely
-    felt because the acceleration ramp (PLAYER_ACCELERATION) only adds ~1/frame
-    after the initial burst, so the paddle rarely reaches the higher cap. This
-    also steepens the ramp -- PLAYER_ACCELERATION[0] is the first-frame speed --
-    so the paddle jumps to a high speed immediately.
+    Makes the paddle drastically faster and twitchier -- a large shift in control
+    dynamics rather than a subtle tweak. PLAYER_ACCELERATION[0] is the first-frame
+    speed after a direction change, so raising it to 14 (base is 3) flings the
+    paddle ~14 px on the first input, over a tenth of its 128 px range. The top
+    speed is raised to match so the burst isn't immediately clamped. The paddle
+    position is clipped to the play area, so the high values stay in bounds.
     """
     constants_overrides = {
-        "PLAYER_MAX_SPEED": 15,
-        "PLAYER_ACCELERATION": jnp.array([8, 6, 4, 3, 3]),       # base speed 8 (was 3)
-        "PLAYER_WALL_ACCELERATION": jnp.array([4, 3, 3, 3, 3]),  # was [1, 2, 1, 1, 1]
+        "PLAYER_MAX_SPEED": 24,
+        "PLAYER_ACCELERATION": jnp.array([14, 10, 7, 5, 5]),     # first-frame speed 14 (was 3)
+        "PLAYER_WALL_ACCELERATION": jnp.array([6, 5, 4, 4, 4]),  # was [1, 2, 1, 1, 1]
     }
 
 
@@ -329,9 +340,13 @@ class SlowerPaddleMod(JaxAtariInternalModPlugin):
 class RandomServeMod(JaxAtariPostStepModPlugin):
     """
     Randomizes the ball's serve at each launch: a random horizontal direction
-    (left/right) and a random starting angle/speed (speed index 0-2). The ball
-    still serves downward toward the paddle. Breakout's state carries no PRNG
-    key, so randomness is seeded from step_counter (different at every launch).
+    (left/right) and a random starting angle/speed across the *full* speed table
+    (index 0-4, vs the base game's fixed slow serve). The two downward directions
+    (0=down-right, 1=down-left) combined with the five speed indices give a wide
+    spread of serve angles -- from shallow-slow to steep-fast -- so the launch is
+    genuinely unpredictable. The ball still always serves downward toward the
+    paddle. Breakout's state carries no PRNG key, so randomness is seeded from
+    step_counter (different at every launch).
     """
     @partial(jax.jit, static_argnums=(0,))
     def run(self, prev_state: BreakoutState, new_state: BreakoutState) -> BreakoutState:
@@ -344,7 +359,7 @@ class RandomServeMod(JaxAtariPostStepModPlugin):
         key = jax.random.PRNGKey(new_state.step_counter.astype(jnp.uint32))
         k_dir, k_speed = jax.random.split(key)
         rand_dir = jax.random.randint(k_dir, (), 0, 2).astype(new_state.ball_direction_idx.dtype)      # 0=down-right, 1=down-left
-        rand_speed = jax.random.randint(k_speed, (), 0, 3).astype(new_state.ball_speed_idx.dtype)      # angle/speed variety
+        rand_speed = jax.random.randint(k_speed, (), 0, 5).astype(new_state.ball_speed_idx.dtype)      # full 0-4 angle/speed variety
         vx, vy = self._env._get_ball_velocity(rand_speed, rand_dir, new_state.step_counter)
         vx = vx.astype(new_state.ball_vel_x.dtype)
         vy = vy.astype(new_state.ball_vel_y.dtype)
@@ -359,18 +374,26 @@ class RandomServeMod(JaxAtariPostStepModPlugin):
 # --- Reward mods -------------------------------------------------------------
 class BallLossPenaltyMod(JaxAtariInternalModPlugin):
     """
-    Adds a -_PENALTY floor whenever the ball is lost (a life is dropped), on top
-    of the normal brick-breaking reward. The base game rewards clearing bricks but
-    is silent about dropping the ball, so this shifts the optimum from pure brick
-    greed toward keeping the ball alive. A ball loss is the frame lives decreases.
-    """
-    _PENALTY = 1
+    Penalizes losing the ball, on top of the normal brick-breaking reward, to shift
+    the optimum from pure brick greed toward keeping the ball alive.
 
+    The penalty is *sustained*, not a single frame: -1 every frame the ball is out
+    of play after a life was lost (game_started == 0 and lives < NUM_LIVES), until
+    the agent serves again. Under the benchmark's sign-clipped training reward a
+    one-frame -1 on the death frame would be a single negative window per death,
+    swamped by the ~100 positive brick windows; sustaining it across the re-serve
+    wait makes each death cost several negative windows and additionally pressures
+    prompt re-serving. The very first serve of the game (lives == NUM_LIVES) is
+    excluded so the opening isn't penalized.
+    """
     @partial(jax.jit, static_argnums=(0,))
     def _get_reward(self, previous_state: BreakoutState, state: BreakoutState):
         base = state.score - previous_state.score
-        ball_lost = state.lives < previous_state.lives
-        return (base - ball_lost.astype(jnp.int32) * self._PENALTY).astype(jnp.int32)
+        waiting_after_death = jnp.logical_and(
+            state.game_started == 0,
+            state.lives < self._env.consts.NUM_LIVES,
+        )
+        return (base - waiting_after_death.astype(jnp.int32)).astype(jnp.int32)
 
 
 class FlattenRowValuesMod(JaxAtariInternalModPlugin):
@@ -378,11 +401,31 @@ class FlattenRowValuesMod(JaxAtariInternalModPlugin):
     Every brick pays +1, removing the base game's top-row-worth-more scheme
     (7/4/1 by row). Exactly one brick breaks per step, so a positive score delta
     means one brick fell regardless of its value.
+
+    NOTE: under sign-clipped training reward this is a NO-OP -- the base game's
+    7/4/1 all clip to +1 already, so the clipped stream is identical to base. Use
+    only with reward clipping disabled. For a clip-surviving row mod see
+    TopRowOnlyMod / BottomRowFirstMod, which zero or negate some rows.
     """
     @partial(jax.jit, static_argnums=(0,))
     def _get_reward(self, previous_state: BreakoutState, state: BreakoutState):
         broke_brick = state.score > previous_state.score
         return broke_brick.astype(jnp.int32)
+
+
+class TopRowOnlyMod(JaxAtariInternalModPlugin):
+    """
+    Only TOP-row bricks score (+1); middle and bottom rows pay nothing (0). The base
+    score delta reveals the row (7=top, 4=middle, 1=bottom). This is the opposite
+    priority to BottomRowFirstMod, and -- unlike an all-positive "top worth more"
+    scheme, which sign-clipping would collapse back to the base "+1 per brick" -- it
+    zeroes the lower rows so the clipped signal genuinely differs from base: the
+    agent is rewarded only for digging up to and clearing the top rows.
+    """
+    @partial(jax.jit, static_argnums=(0,))
+    def _get_reward(self, previous_state: BreakoutState, state: BreakoutState):
+        delta = state.score - previous_state.score
+        return (delta == 7).astype(jnp.int32)   # +1 only for top-row bricks
 
 
 class EveryKContactsMod(JaxAtariInternalModPlugin):
@@ -403,16 +446,18 @@ class EveryKContactsMod(JaxAtariInternalModPlugin):
 
 class BottomRowFirstMod(JaxAtariInternalModPlugin):
     """
-    Inverts the base row-value scheme: the near (bottom) rows now pay the most and
-    the top rows pay 0. Since one brick breaks per step, the score delta reveals
-    the row (base points 7=top, 4=middle, 1=bottom), which is remapped to
-    0=top, 4=middle, 7=bottom.
+    Sign-inverts the row incentive so it survives the benchmark's reward clipping:
+    breaking a TOP-row brick is actively penalized (-1), MIDDLE rows are neutral (0),
+    and BOTTOM rows are rewarded (+1). The base score delta reveals the row (7=top,
+    4=middle, 1=bottom). Unlike a positive-only "bottom worth more" scheme -- which
+    sign-clipping would collapse back to the base "+1 per brick" -- the negative
+    top-row reward changes the clipped signal, pushing the agent to clear from the
+    bottom up and avoid disturbing the top rows.
     """
     @partial(jax.jit, static_argnums=(0,))
     def _get_reward(self, previous_state: BreakoutState, state: BreakoutState):
         delta = state.score - previous_state.score
-        reward = jnp.where(delta == 7, 0,               # top rows -> 0
-                  jnp.where(delta == 4, 4,               # middle rows -> 4
-                  jnp.where(delta == 1, 7, 0)))          # bottom rows -> 7
+        reward = jnp.where(delta == 7, -1,              # top rows -> -1 (penalized)
+                  jnp.where(delta == 1, 1, 0))          # bottom -> +1, else (incl. middle=4) 0
         return reward.astype(jnp.int32)
 
