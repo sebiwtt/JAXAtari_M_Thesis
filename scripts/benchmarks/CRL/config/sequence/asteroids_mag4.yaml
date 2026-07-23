@@ -1,0 +1,17 @@
+# @package _global_
+# Ordered single-mod tasks; index 0 must be the base task (no mods). Mod keys are
+# from src/jaxatari/games/mods/asteroids_mods.py. At most one mod per task.
+# Magnitude sequence: the same dynamics mod (asteroid speed) scaled to incrementally
+# harder levels -- ASTEROID_SPEED scaled 2x/3x/4x/5x (base (2,1) -> up to (10,5)).
+ENV_ID: asteroids
+SEQUENCE: mag4
+TASK_MODS:
+  - []
+  - ["asteroid_speed_x2"]
+  - ["asteroid_speed_x3"]
+  - ["asteroid_speed_x4"]
+  - ["asteroid_speed_x5"]
+
+# --- More Options ---
+# more_asteroids   # (density axis; capped at MAX_NUMBER_OF_ASTEROIDS=17)
+# faster_ship

@@ -25,6 +25,10 @@ from jaxatari.games.mods.breakout.breakout_mod_plugins import (
     FasterPaddleMod,
     SlowerPaddleMod,
     RandomServeMod,
+    BallSpeedX2Mod,
+    BallSpeedX3Mod,
+    BallSpeedX4Mod,
+    BallSpeedX5Mod,
 )
 
 class BreakoutEnvMod(JaxAtariModController):
@@ -53,6 +57,12 @@ class BreakoutEnvMod(JaxAtariModController):
         "slower_paddle": SlowerPaddleMod,
         "random_serve": RandomServeMod,
         "ball_drift": BallDriftMod,
+
+        # Magnitude sequence (ball_speed_xN): same mod, incrementally faster ball
+        "ball_speed_x2": BallSpeedX2Mod,
+        "ball_speed_x3": BallSpeedX3Mod,
+        "ball_speed_x4": BallSpeedX4Mod,
+        "ball_speed_x5": BallSpeedX5Mod,
         # Dyn. mods that were already available
         "ball_gravity": BallGravityMod,
 

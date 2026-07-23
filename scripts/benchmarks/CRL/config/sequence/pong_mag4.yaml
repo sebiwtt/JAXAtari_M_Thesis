@@ -9,9 +9,3 @@ TASK_MODS:
   - ["ball_speed_x3"]
   - ["ball_speed_x4"]
   - ["ball_speed_x5"]
-
-# --- More Options ---
-# slow_ball
-# slow_paddle
-# linear_movement
-# lazy_enemy

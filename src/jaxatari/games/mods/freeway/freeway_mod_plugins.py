@@ -319,6 +319,87 @@ class ChangeCarSpeedMod(JaxAtariInternalModPlugin):
     }
 
 
+# --- Magnitude-scaled car speed (car_speed_x2 .. x5) -------------------------
+class _FasterCarsMod(JaxAtariPostStepModPlugin):
+    """
+    Base for the magnitude sequence: every lane moves _MULTIPLIER px per base 1px
+    move, so all cars are _MULTIPLIER times faster while keeping each lane's
+    direction and the base fast/slow gradient.
+
+    Freeway's car step moves a lane +/-1 px only every |CAR_UPDATES[i]| frames --
+    a frame-period whose floor is 1px/frame -- so periods can't scale speed past
+    that cap (base lanes 4/5 are already at 1px/frame). Instead this post-step mod
+    amplifies the *pixel step*: it reads the base's own 1px move this frame
+    (delta == +/-1, i.e. not a wrap and not a paused cadence frame) and adds
+    (_MULTIPLIER - 1) more px in that lane's direction, re-applying the base game's
+    wrap + respawn-offset math so fast cars still recycle correctly.
+
+    Tunnel-safe: the base checks chicken/car collision before this runs, so a car's
+    collision-checked x positions land _MULTIPLIER px apart; with car_width 8 and
+    the chicken's ~4px hit width the overlap zone is ~12px, so up to ~11 px/frame
+    can't skip the chicken between checks (x5 = 5 px is well under).
+    """
+    _MULTIPLIER = 2
+
+    # NOTE: the mod controller only registers a post-step mod when 'run' is defined
+    # directly on the concrete class (`'run' in cls.__dict__`), so each xN subclass
+    # below defines its own thin `run` that delegates to this shared `_apply`.
+    @partial(jax.jit, static_argnums=(0,))
+    def _apply(self, prev_state: FreewayState, new_state: FreewayState) -> FreewayState:
+        c = self._env.consts
+        signs = jnp.sign(jnp.array(c.CAR_UPDATES, dtype=jnp.int32))
+        delta = new_state.cars[:, 0] - prev_state.cars[:, 0]
+        moved = jnp.abs(delta) == 1  # a normal 1px move (excludes wraps and paused frames)
+        x = new_state.cars[:, 0] + jnp.where(moved, signs * (self._MULTIPLIER - 1), 0).astype(new_state.cars.dtype)
+
+        # Replicate the base game's wrap + respawn-offset (jax_freeway.step).
+        range_len = c.screen_width + c.car_width
+        x_wrapped = ((x + c.car_width) % range_len) - c.car_width
+        wrapped_right = jnp.logical_and(signs > 0, x >= c.screen_width)
+        wrapped_left = jnp.logical_and(signs < 0, x < -c.car_width)
+        offset = jnp.asarray(c.respawn_offset, dtype=jnp.int32)
+        adjusted = jnp.where(wrapped_right, x_wrapped + offset,
+                    jnp.where(wrapped_left, x_wrapped - offset, x_wrapped))
+        adjusted = jnp.clip(adjusted, -c.car_width, c.screen_width - 1)
+        return new_state.replace(cars=new_state.cars.at[:, 0].set(adjusted.astype(jnp.int32)))
+
+
+class CarSpeedX2Mod(_FasterCarsMod):
+    """Car speed x2."""
+    _MULTIPLIER = 2
+
+    @partial(jax.jit, static_argnums=(0,))
+    def run(self, prev_state: FreewayState, new_state: FreewayState) -> FreewayState:
+        return self._apply(prev_state, new_state)
+
+
+class CarSpeedX3Mod(_FasterCarsMod):
+    """Car speed x3."""
+    _MULTIPLIER = 3
+
+    @partial(jax.jit, static_argnums=(0,))
+    def run(self, prev_state: FreewayState, new_state: FreewayState) -> FreewayState:
+        return self._apply(prev_state, new_state)
+
+
+class CarSpeedX4Mod(_FasterCarsMod):
+    """Car speed x4."""
+    _MULTIPLIER = 4
+
+    @partial(jax.jit, static_argnums=(0,))
+    def run(self, prev_state: FreewayState, new_state: FreewayState) -> FreewayState:
+        return self._apply(prev_state, new_state)
+
+
+class CarSpeedX5Mod(_FasterCarsMod):
+    """Car speed x5."""
+    _MULTIPLIER = 5
+
+    @partial(jax.jit, static_argnums=(0,))
+    def run(self, prev_state: FreewayState, new_state: FreewayState) -> FreewayState:
+        return self._apply(prev_state, new_state)
+
+
 class FasterPlayerMod(JaxAtariPostStepModPlugin):
     """
     Makes the chicken move faster vertically (default: 2x).

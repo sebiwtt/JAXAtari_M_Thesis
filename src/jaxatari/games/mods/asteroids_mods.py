@@ -3,7 +3,7 @@ from functools import partial
 import jax
 import jax.numpy as jnp
 from jaxatari.modification import JaxAtariModController
-from jaxatari.games.mods.asteroids.asteroids_mod_plugins import DontShootMod, MatrixMod, InstantTurnMod, ChangeShipColorMod, ChangeAsteroidColorMod, ChangeBackgroundColorMod, ChangeScoreColorMod, GrayscaleThemeMod, NoFlickerMod, FasterAsteroidsMod, SlowerAsteroidsMod, FasterShipMod, SlowerShipMod, RandomizeAsteroidSpawnMod, MoreAsteroidsMod, ShipInertiaMod, LifeLossPenaltyMod, FlattenAsteroidValuesMod, LargeAsteroidOnlyMod, SmallAsteroidOnlyMod, WaveClearBonusMod, EveryKKillsMod, SurvivalRewardMod
+from jaxatari.games.mods.asteroids.asteroids_mod_plugins import DontShootMod, MatrixMod, InstantTurnMod, ChangeShipColorMod, ChangeAsteroidColorMod, ChangeBackgroundColorMod, ChangeScoreColorMod, GrayscaleThemeMod, NoFlickerMod, FasterAsteroidsMod, SlowerAsteroidsMod, AsteroidSpeedX2Mod, AsteroidSpeedX3Mod, AsteroidSpeedX4Mod, AsteroidSpeedX5Mod, FasterShipMod, SlowerShipMod, RandomizeAsteroidSpawnMod, MoreAsteroidsMod, ShipInertiaMod, LifeLossPenaltyMod, FlattenAsteroidValuesMod, LargeAsteroidOnlyMod, SmallAsteroidOnlyMod, WaveClearBonusMod, EveryKKillsMod, SurvivalRewardMod
 
 class AsteroidsEnvMod(JaxAtariModController):
     """
@@ -23,6 +23,12 @@ class AsteroidsEnvMod(JaxAtariModController):
         # Dynamics
         "faster_asteroids": FasterAsteroidsMod,
         "slower_asteroids": SlowerAsteroidsMod,
+
+        # Magnitude sequence (asteroid_speed_xN): same mod, incrementally faster
+        "asteroid_speed_x2": AsteroidSpeedX2Mod,
+        "asteroid_speed_x3": AsteroidSpeedX3Mod,
+        "asteroid_speed_x4": AsteroidSpeedX4Mod,
+        "asteroid_speed_x5": AsteroidSpeedX5Mod,
         "faster_ship": FasterShipMod,
         "slower_ship": SlowerShipMod,
         "randomize_asteroid_spawn": RandomizeAsteroidSpawnMod,

@@ -267,6 +267,34 @@ class FasterAsteroidsMod(JaxAtariInternalModPlugin):
     }
 
 
+# --- Magnitude-scaled asteroid speed (asteroid_speed_x2 .. x5) ---------------
+# Scales ASTEROID_SPEED (base (2, 1): 2 px horizontal on periodic side-step frames,
+# 1 px vertical every frame) uniformly by N -> (2N, N). Vertical is the every-frame
+# threat; N up to 5 stays tunnel-safe against the ship (10 px tall) and asteroids
+# (>= 8 px tall), whose combined >= 18 px span dwarfs a 5 px step. The horizontal
+# 2N px only applies on the infrequent side-step frames, so even 10 px at x5 needs
+# both axes to overlap to hit -- verified empirically that destroy rate stays healthy
+# and the ship keeps dying (no tunneling) across all levels.
+class AsteroidSpeedX2Mod(JaxAtariInternalModPlugin):
+    """Asteroid speed x2 -> ASTEROID_SPEED (4, 2)."""
+    constants_overrides = {"ASTEROID_SPEED": (4, 2)}
+
+
+class AsteroidSpeedX3Mod(JaxAtariInternalModPlugin):
+    """Asteroid speed x3 -> ASTEROID_SPEED (6, 3) (same as faster_asteroids)."""
+    constants_overrides = {"ASTEROID_SPEED": (6, 3)}
+
+
+class AsteroidSpeedX4Mod(JaxAtariInternalModPlugin):
+    """Asteroid speed x4 -> ASTEROID_SPEED (8, 4)."""
+    constants_overrides = {"ASTEROID_SPEED": (8, 4)}
+
+
+class AsteroidSpeedX5Mod(JaxAtariInternalModPlugin):
+    """Asteroid speed x5 -> ASTEROID_SPEED (10, 5)."""
+    constants_overrides = {"ASTEROID_SPEED": (10, 5)}
+
+
 class SlowerAsteroidsMod(JaxAtariInternalModPlugin):
     """
     Makes asteroids slower. ASTEROID_SPEED's vertical component is already at

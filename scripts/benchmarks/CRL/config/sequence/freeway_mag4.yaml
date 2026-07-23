@@ -1,0 +1,13 @@
+# @package _global_
+# Ordered single-mod tasks; index 0 must be the base task (no mods). Mod keys are
+# from src/jaxatari/games/mods/freeway_mods.py. At most one mod per task.
+# Magnitude sequence: the same dynamics mod (car speed) scaled to incrementally
+# harder levels -- cars move 2x/3x/4x/5x their base pixel speed.
+ENV_ID: freeway
+SEQUENCE: mag4
+TASK_MODS:
+  - []
+  - ["car_speed_x2"]
+  - ["car_speed_x3"]
+  - ["car_speed_x4"]
+  - ["car_speed_x5"]

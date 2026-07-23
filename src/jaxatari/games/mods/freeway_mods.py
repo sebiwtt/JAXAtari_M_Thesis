@@ -1,6 +1,6 @@
 import os
 from jaxatari.modification import JaxAtariModController
-from jaxatari.games.mods.freeway.freeway_mod_plugins import StopAllCarsMod, StaticCarsMod, SlowCarsMod, BlackCarsMod, CenterCarsOnResetMod, HallOfFameMod, BikesMod, FrogMod, NewLaneColorsMod, GreenScoreMod, ChangePlayerColorMod, ChangeCarColorMod, ChangeRoadColorMod, ChangeScoreColorMod, ChangeCarSpeedMod, FasterPlayerMod, SlowerPlayerMod, ChangeCarSpawningMod, InvertCarsMod, RewardPerLaneMod, CollisionPenaltyMod, RewardMiddleLaneMod, CleanCrossingMod
+from jaxatari.games.mods.freeway.freeway_mod_plugins import StopAllCarsMod, StaticCarsMod, SlowCarsMod, BlackCarsMod, CenterCarsOnResetMod, HallOfFameMod, BikesMod, FrogMod, NewLaneColorsMod, GreenScoreMod, ChangePlayerColorMod, ChangeCarColorMod, ChangeRoadColorMod, ChangeScoreColorMod, ChangeCarSpeedMod, FasterPlayerMod, SlowerPlayerMod, ChangeCarSpawningMod, InvertCarsMod, CarSpeedX2Mod, CarSpeedX3Mod, CarSpeedX4Mod, CarSpeedX5Mod, RewardPerLaneMod, CollisionPenaltyMod, RewardMiddleLaneMod, CleanCrossingMod
 
 class FreewayEnvMod(JaxAtariModController):
     """
@@ -28,6 +28,12 @@ class FreewayEnvMod(JaxAtariModController):
         "slower_player": SlowerPlayerMod,
         "change_car_spawning": ChangeCarSpawningMod,
         "invert_cars": InvertCarsMod,
+
+        # Magnitude sequence (car_speed_xN): same mod, incrementally faster cars
+        "car_speed_x2": CarSpeedX2Mod,
+        "car_speed_x3": CarSpeedX3Mod,
+        "car_speed_x4": CarSpeedX4Mod,
+        "car_speed_x5": CarSpeedX5Mod,
 
         # Dyn. mods that were already available
         "stop_all_cars": StopAllCarsMod,

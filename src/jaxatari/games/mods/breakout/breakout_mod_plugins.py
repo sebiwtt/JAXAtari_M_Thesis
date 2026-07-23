@@ -287,6 +287,47 @@ class FasterBallMod(JaxAtariInternalModPlugin):
     }
 
 
+# --- Magnitude-scaled ball speed (ball_speed_x2 .. x5) -----------------------
+# The base speed table, [speed_idx, step_counter % 2, (vx, vy)]. Each xN mod scales
+# only the *horizontal* column by N; vy is left at the base (<= 3 px/frame) because
+# the ball moves its whole velocity in one un-sub-stepped frame and would tunnel
+# through blocks past vy 3 (the ~5px bounce band). Horizontal scaling is tunnel-safe
+# -- side walls clamp the ball and blocks form a contiguous wall, so a fast vx only
+# makes the ball harder to intercept, which is exactly the intended difficulty ramp
+# (measured deaths/1k climb ~3.5 -> 4.5 -> 10 -> 15 -> 21 across x1..x5).
+_BASE_BALL_VEL = jnp.array([
+    [[1, 1], [1, 1]],
+    [[2, 1], [1, 1]],
+    [[1, 2], [1, 1]],
+    [[2, 2], [2, 2]],
+    [[2, 3], [2, 3]],
+])
+
+
+def _ball_vel_scaled_vx(mult: int):
+    return _BASE_BALL_VEL.at[..., 0].multiply(mult)
+
+
+class BallSpeedX2Mod(JaxAtariInternalModPlugin):
+    """Ball horizontal speed x2 (vy kept <= 3 for block-collision safety)."""
+    constants_overrides = {"BALL_VELOCITIES_ABS": _ball_vel_scaled_vx(2)}
+
+
+class BallSpeedX3Mod(JaxAtariInternalModPlugin):
+    """Ball horizontal speed x3 (vy kept <= 3 for block-collision safety)."""
+    constants_overrides = {"BALL_VELOCITIES_ABS": _ball_vel_scaled_vx(3)}
+
+
+class BallSpeedX4Mod(JaxAtariInternalModPlugin):
+    """Ball horizontal speed x4 (vy kept <= 3 for block-collision safety)."""
+    constants_overrides = {"BALL_VELOCITIES_ABS": _ball_vel_scaled_vx(4)}
+
+
+class BallSpeedX5Mod(JaxAtariInternalModPlugin):
+    """Ball horizontal speed x5 (vy kept <= 3 for block-collision safety)."""
+    constants_overrides = {"BALL_VELOCITIES_ABS": _ball_vel_scaled_vx(5)}
+
+
 class SlowerBallMod(JaxAtariInternalModPlugin):
     """
     Makes the ball slower by flattening the BALL_VELOCITIES_ABS speed table to a
