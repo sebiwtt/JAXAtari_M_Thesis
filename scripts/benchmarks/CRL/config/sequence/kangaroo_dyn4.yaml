@@ -6,14 +6,12 @@ SEQUENCE: dyn4
 TASK_MODS:
   - []
   - ["change_kangaroo_speed"]  # player walks 2x faster horizontally
-  - ["change_monkey_speed"]    # monkeys patrol 2x faster -> throw coconuts sooner/more
-  - ["randomize_coconuts"]     # random head/foot throw height (duck vs jump unpredictable)
+  - ["coconut_speed_x2"]   
+  - ["no_monkey"]   
   - ["jump_gravity"]           # floatier, higher "low-gravity" jump arc
 
 # --- More Options ---
-# high_thrown_coconuts
-# no_thrown_coconut
-# no_falling_coconut
-# pin_child
-# spawn_on_second_floor
 # no_punch/crouch/jump
+# change_monkey_speed
+# randomize_coconuts
+# no_monkey / no_falling_coconut

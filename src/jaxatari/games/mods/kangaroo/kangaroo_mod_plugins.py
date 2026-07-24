@@ -1623,27 +1623,35 @@ class LifeLossPenaltyMod(JaxAtariInternalModPlugin):
 
 class RewardPerFloorMod(JaxAtariInternalModPlugin):
     """
-    Dense progress reward: +_PER_FLOOR for each floor climbed upward (and
-    -_PER_FLOOR per floor lost), replacing the sparse point score. Potential-based
-    on the player's current floor, so bobbing up and down a ladder nets zero --
-    only net upward progress toward Joey (the top platform) is rewarded.
+    Climbing-shaped reward: the normal point score PLUS a dense bonus for climbing
+    toward Joey. Kangaroo's real scoring (fruit/monkeys/Joey) all lives on the
+    upper platforms and is unreachable until the agent learns to climb, so on its
+    own the base reward gives PPO no gradient (it sits at ~0). This mod adds that
+    gradient without removing the base game's incentives.
 
-    The floor index is derived from `last_stood_on_platform_y` (the platform the
-    player last stood on: 172 ground .. 28 top, ~48 px apart), which is stable
-    while jumping/climbing and only advances once a new floor is actually reached.
-    Death/level-transition teleports back to the ground are gated out so they don't
-    read as a huge negative (the player is respawned/frozen on those frames).
+    Two additive terms on top of the base score delta:
+      * dense climb: +_CLIMB_PER_PX per pixel of *net* upward motion while actually
+        on a ladder (is_climbing on both frames). Random policies never climb, so
+        their bonus is 0 -- this is the discriminative, learnable signal. It is the
+        net (signed) height, so oscillating up/down a ladder nets zero (no farming);
+        only retained ascent pays.
+      * floor milestone: +_FLOOR_BONUS each time the player's floor index increases
+        (172 ground -> 0 .. 28 top -> 3), i.e. a whole platform gained.
+
+    Death / level-transition teleports back to the ground are gated out of both
+    terms so a respawn doesn't read as a huge negative.
     """
-    _PER_FLOOR = 1
+    _CLIMB_PER_PX = 1
+    _FLOOR_BONUS = 50
 
     @partial(jax.jit, static_argnums=(0,))
     def _get_reward(self, previous_state: KangarooState, state: KangarooState):
+        base = state.score - previous_state.score
+
         # 172 (ground) -> 0, 124 -> 1, 76 -> 2, 28 (top / Joey) -> 3
         def floor(player):
             return jnp.clip(jnp.round((172 - player.last_stood_on_platform_y) / 48.0), 0, 4).astype(jnp.int32)
 
-        delta = floor(state.player) - floor(previous_state.player)
-        # Ignore the ground teleport on death / level change / levelup freeze.
         teleported = (
             (state.lives < previous_state.lives)
             | state.player.is_crashing
@@ -1651,27 +1659,83 @@ class RewardPerFloorMod(JaxAtariInternalModPlugin):
             | (state.levelup_timer != 0)
             | (state.current_level != previous_state.current_level)
         )
-        delta = jnp.where(teleported, 0, delta)
-        return (delta * self._PER_FLOOR).astype(jnp.int32)
+
+        # Dense climb: net upward pixels while on a ladder (random never climbs -> 0).
+        climbing = previous_state.player.is_climbing & state.player.is_climbing
+        climb_dy = jnp.where(
+            climbing & ~teleported,
+            previous_state.player.y - state.player.y,  # +ve = moved up
+            0,
+        )
+
+        # Milestone: reached a higher floor this frame.
+        floor_up = jnp.where(~teleported & (floor(state.player) > floor(previous_state.player)), 1, 0)
+
+        return (base + self._CLIMB_PER_PX * climb_dy + self._FLOOR_BONUS * floor_up).astype(jnp.int32)
 
 
 class ReachJoeyOnlyMod(JaxAtariInternalModPlugin):
     """
-    Sparse goal-only reward: +_REWARD the moment the player reaches Joey (the baby
-    kangaroo) at the top of the level, and 0 for everything else -- fruit, punches,
-    bell and the time bonus are all ignored. The whole task collapses to "get to
-    the top".
+    Goal-approach reward: the normal point score PLUS a dense bonus for getting
+    closer to Joey (the baby kangaroo at the top), plus a large arrival bonus for
+    actually reaching the top. A purely sparse "reached the top" reward is
+    unlearnable here (it takes a long climb chain that PPO never stumbles into), so
+    this shapes the whole path -- moving up and toward Joey's column pays every
+    frame, giving PPO a gradient to follow.
 
-    Reaching the top is the base game's `level_finished` flag (set when the player
-    stands on the final platform, where the child sits); the rising edge
-    `level_finished & ~prev.level_finished` credits it once per level.
+    Terms on top of the base score delta:
+      * approach: +_APPROACH per unit of Manhattan distance to Joey removed this
+        frame (potential-based: moving away costs the same, so it can't be farmed).
+      * arrival: +_ARRIVE once, on the frame the top platform is reached
+        (`level_finished` rising edge).
+
+    Death / level-transition teleports are gated out so the position reset doesn't
+    read as a huge distance swing.
     """
-    _REWARD = 1000
+    _APPROACH = 1
+    _ARRIVE = 500
 
     @partial(jax.jit, static_argnums=(0,))
     def _get_reward(self, previous_state: KangarooState, state: KangarooState):
+        base = state.score - previous_state.score
+
+        def dist(st):
+            joey = st.level.child_position
+            return jnp.abs(st.player.x - joey[0]) + jnp.abs(st.player.y - joey[1])
+
+        teleported = (
+            (state.lives < previous_state.lives)
+            | state.player.is_crashing
+            | (previous_state.levelup_timer != 0)
+            | (state.levelup_timer != 0)
+            | (state.current_level != previous_state.current_level)
+        )
+        approach = jnp.where(teleported, 0, dist(previous_state) - dist(state))
         reached = state.level_finished & ~previous_state.level_finished
-        return jnp.where(reached, self._REWARD, 0).astype(jnp.int32)
+
+        return (base + self._APPROACH * approach + self._ARRIVE * reached.astype(jnp.int32)).astype(jnp.int32)
+
+
+class RewardUpperFloorsMod(JaxAtariInternalModPlugin):
+    """
+    The normal point score PLUS a per-frame bonus of +_PER_STEP for every frame the
+    player is standing above the ground floor (floor index >= 1). Where
+    reward_per_floor pays for the *act* of climbing higher, this pays for *reaching
+    and holding* the upper platforms -- a distinct optimum (get up, then stay up
+    where the fruit/monkeys/Joey are) rather than "keep ascending".
+
+    A random policy never leaves the ground floor, so its bonus is 0, making this
+    cleanly discriminative; a policy that climbs even one ladder starts accruing it.
+    """
+    _PER_STEP = 1
+
+    @partial(jax.jit, static_argnums=(0,))
+    def _get_reward(self, previous_state: KangarooState, state: KangarooState):
+        base = state.score - previous_state.score
+        # floor index: 172 (ground) -> 0, 124 -> 1, 76 -> 2, 28 (top) -> 3
+        floor = jnp.clip(jnp.round((172 - state.player.last_stood_on_platform_y) / 48.0), 0, 4)
+        up_here = (floor >= 1) & ~state.player.is_crashing
+        return (base + self._PER_STEP * up_here.astype(jnp.int32)).astype(jnp.int32)
 
 
 class FruitOnlyMod(JaxAtariInternalModPlugin):
@@ -1750,19 +1814,30 @@ class PunchOnlyScoringMod(JaxAtariInternalModPlugin):
 
 class SurvivalRewardMod(JaxAtariInternalModPlugin):
     """
-    Rewards +_PER_STEP for every step taken, regardless of fruit, punches, the
-    bell or reaching Joey -- replaces the score-based reward entirely, turning the
-    task into "stay alive as long as possible".
+    Pure-survival task: a small living bonus of +_PER_STEP every frame MINUS a large
+    _DEATH_PENALTY each time a life is lost, and NO point score at all. Induces a
+    "turtle/dodger" policy that just stays alive (dodging the falling coconut at the
+    bottom floor) and ignores fruit, punches and climbing -- deliberately distinct
+    from life_loss_penalty (a cautious *scorer*: base score minus the same death
+    penalty), so the two reward different behaviours and switching between them
+    produces measurable forgetting.
 
-    The episode ends only once the player is out of lives (`_get_done` fires at
-    lives <= 0), and the training loop stops calling step() at done, so a flat
-    per-step reward already integrates to time-alive -- no extra lives check needed.
+    Why the death penalty (and not just a bigger/sparser bonus): a flat +1/step is
+    un-learnable -- death gives no signal, the +1 merely stops, so PPO can't credit
+    the action that got it killed, and a random policy already survives ~2300 steps
+    by jittering (R_rand is high, denominator collapses). The -_DEATH_PENALTY is a
+    sharp, well-credited event at each death -- exactly the signal that makes
+    life_loss_penalty learnable -- so PPO can learn to survive *longer* than random
+    (the level timer allows ~5000 steps, well above random's ~2300, so there is real
+    headroom). Uses a lives delta, which decrements once per death.
     """
     _PER_STEP = 1
+    _DEATH_PENALTY = 200
 
     @partial(jax.jit, static_argnums=(0,))
     def _get_reward(self, previous_state: KangarooState, state: KangarooState):
-        return jnp.array(self._PER_STEP, dtype=jnp.int32)
+        lives_lost = jnp.maximum(previous_state.lives - state.lives, 0)
+        return (self._PER_STEP - self._DEATH_PENALTY * lives_lost).astype(jnp.int32)
 
 
 # ============================================================================ #

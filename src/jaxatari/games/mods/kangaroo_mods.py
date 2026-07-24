@@ -13,7 +13,7 @@ from jaxatari.games.mods.kangaroo.kangaroo_mod_plugins import (
     ChangeKangarooColorMod, ChangeMonkeyColorMod, ChangeBackgroundColorMod,
     ChangeScoreColorMod, GrayscaleThemeMod,
     LifeLossPenaltyMod, RewardPerFloorMod, ReachJoeyOnlyMod, FruitOnlyMod, PunchOnlyScoringMod,
-    SurvivalRewardMod,
+    SurvivalRewardMod, RewardUpperFloorsMod,
     CoconutSpeedX2Mod, CoconutSpeedX3Mod, CoconutSpeedX4Mod, CoconutSpeedX5Mod,
     NoPunchMod, NoCrouchMod, NoJumpMod,
 )
@@ -66,8 +66,9 @@ KANGAROO_MOD_REGISTRY = {
     # Reward: reshape what the agent is rewarded for
     # ------------------------------------------------------------------ #
     "life_loss_penalty": LifeLossPenaltyMod,     # score - penalty per life lost
-    "reward_per_floor": RewardPerFloorMod,       # dense: reward climbing toward Joey
-    "reach_joey_only": ReachJoeyOnlyMod,         # sparse: only reaching the top scores
+    "reward_per_floor": RewardPerFloorMod,       # base + dense climb bonus toward Joey
+    "reach_joey_only": ReachJoeyOnlyMod,         # base + dense approach-Joey bonus
+    "reward_upper_floors": RewardUpperFloorsMod, # base + per-frame bonus while off the ground floor
     "fruit_only": FruitOnlyMod,                  # only fruit collection scores
     "punch_only_scoring": PunchOnlyScoringMod,   # only punching monkeys/coconut scores
     "survival_reward": SurvivalRewardMod,        # +1 per step alive, ignores all scoring

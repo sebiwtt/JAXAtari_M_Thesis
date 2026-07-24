@@ -1,15 +1,17 @@
 # @package _global_
 # Ordered single-mod tasks; index 0 must be the base task (no mods). Mod keys are
 # from src/jaxatari/games/mods/kangaroo_mods.py. At most one mod per task.
+#
 ENV_ID: kangaroo
 SEQUENCE: rew4
 TASK_MODS:
   - []
-  - ["life_loss_penalty"]    # score minus a penalty per life lost
-  - ["reward_per_floor"]     # dense potential reward for climbing toward Joey
+  - ["life_loss_penalty"]    # base score - 200 per life lost
   - ["punch_only_scoring"]   # only punching monkeys / the falling coconut scores
-  - ["reach_joey_only"]      # sparse: only reaching Joey at the top scores
+  - ["reward_per_floor"]     # base + dense climb bonus + per-floor milestone (random floor = 0)
+  - ["survival_reward"]      # +1/step - 200 per death, no base score (pure survival)
 
-# --- More Options ---
-# fruit_only               # only fruit collection scores
-# survival_reward          # +1 per step alive, ignores all scoring
+# --- More Options (alternate reward axes) ---
+# reach_joey_only        # base + dense approach-Joey distance bonus (goal-seeker; random baseline ~127)
+# reward_upper_floors    # base + per-frame bonus while off the ground floor (reach-and-hold)
+# fruit_only             # only fruit collection scores (forager; learnability less certain)
