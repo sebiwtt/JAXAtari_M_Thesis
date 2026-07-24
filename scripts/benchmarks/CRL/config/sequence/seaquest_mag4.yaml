@@ -1,0 +1,28 @@
+# @package _global_
+# Ordered single-mod tasks; index 0 must be the base task (no mods). Mod keys are
+# from src/jaxatari/games/mods/seaquest_mods.py. At most one mod per task.
+#
+# DRAFT (prep for next session): the enemy_speed_xN ladder is NOT implemented yet.
+# Magnitude sequence: the same dynamics mod (enemy speed) scaled to incrementally
+# harder levels -- sharks/subs move 2x/3x/4x/5x their base speed. Kangaroo/freeway/
+# pong/asteroids all use hazard speed as the magnitude axis, so enemy speed is the
+# natural fit here too.
+ENV_ID: seaquest
+SEQUENCE: mag4
+TASK_MODS:
+  - []
+  - ["enemy_speed_x2"]   # (new)
+  - ["enemy_speed_x3"]   # (new)
+  - ["enemy_speed_x4"]   # (new)
+  - ["enemy_speed_x5"]   # (new)
+
+# --- More Options (alternate magnitude axes) ---
+# oxygen_drain_x2..x5     # (new) progressively faster oxygen depletion
+# spawn_density_x2..x5    # (new) progressively more enemies
+#
+# Implementation hooks (found while surveying jax_seaquest.py):
+#  - enemy speed has no single constant (calculate_movement_speed() is difficulty-
+#    derived), so scale it via a post-step amplification like freeway's _FasterCarsMod
+#    base class (read per-frame dx, add (_MULT-1) more in the travel direction), or by
+#    overriding the movement-speed function. Watch tunnelling: keep px/frame below the
+#    enemy+torpedo overlap width so collisions still register at x5.

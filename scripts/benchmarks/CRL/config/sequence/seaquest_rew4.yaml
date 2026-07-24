@@ -1,0 +1,31 @@
+# @package _global_
+# Ordered single-mod tasks; index 0 must be the base task (no mods). Mod keys are
+# from src/jaxatari/games/mods/seaquest_mods.py. At most one mod per task.
+#
+# DRAFT (prep for next session): none of these reward mods exist yet.
+# Chosen to induce DIFFERENT policies (-> measurable forgetting), as with kangaroo:
+#   life_loss_penalty     = cautious combatant (score, but don't die)
+#   diver_scoring_only    = rescuer            (ignore combat, collect divers)
+#   surface_load_bonus    = full-load surfacer (bank 6 divers, time the surfacing)
+#   flatten_enemy_values  = indiscriminate shooter (all kills worth the same)
+ENV_ID: seaquest
+SEQUENCE: rew4
+TASK_MODS:
+  - []
+  - ["life_loss_penalty"]     # (new) base score - penalty per life lost
+  - ["diver_scoring_only"]    # (new) only diver rescues score; kills give nothing
+  - ["surface_load_bonus"]    # (new) bonus for surfacing with a full diver load
+  - ["flatten_enemy_values"]  # (new) every enemy kill worth the same (kill the rescue-scaled bonus)
+
+# --- More Options ---
+# penalize_diver_shoot       # (new) penalty for shooting/killing a diver
+# survival_reward            # (new) +1/step - death penalty, no base (turtle policy)
+#
+# Implementation hooks (found while surveying jax_seaquest.py):
+#  - base reward: _get_reward() = score delta; override it and recompute from state.
+#  - scoring: enemy kills = SCORE_ENEMY_BASE(20)+STEP(10)*successful_rescues (max 90);
+#    surfacing pays SCORE_DIVER_* and SCORE_OXYGEN_* scaled by rescues.
+#  - flatten_enemy_values: pin the enemy-kill points to a constant (ignore rescues).
+#  - diver_scoring_only / surface_load_bonus: key off divers_collected / just_surfaced /
+#    successful_rescues deltas.
+#  - life_loss_penalty: base - PENALTY * max(0, prev.lives - state.lives).

@@ -1,0 +1,17 @@
+# @package _global_
+# Ordered single-mod tasks; index 0 must be the base task (no mods). Mod keys are
+# from src/jaxatari/games/mods/seaquest_mods.py. At most one mod per task.
+# Mirrors the kangaroo vis4 set (four single-element recolours + a grayscale option).
+ENV_ID: seaquest
+SEQUENCE: vis4
+TASK_MODS:
+  - []
+  - ["change_sub_color"]     # player submarine + torpedo -> orange
+  - ["change_enemy_color"]   # sharks + enemy subs -> magenta
+  - ["change_water_color"]   # water background -> dark teal
+  - ["change_score_color"]   # score digits + life indicator -> cyan
+
+# --- More Options ---
+# grayscale_theme            # whole scene desaturated to luminance grayscale
+# mines                      # swap sharks + subs for mine sprites
+# random_color_enemies       # per-shark random colours

@@ -1,0 +1,18 @@
+# @package _global_
+# Ordered single-mod tasks; index 0 must be the base task (no mods). Mod keys are
+# from src/jaxatari/games/mods/seaquest_mods.py. At most one mod per task.
+ENV_ID: seaquest
+SEQUENCE: dyn4
+TASK_MODS:
+  - []
+  - ["faster_enemies"]        # sharks/subs move 2x faster
+  - ["faster_oxygen_drain"]   # oxygen depletes 2x faster -> must surface more often
+  - ["dense_spawn"]           # always 3-enemy formations (denser field)
+  - ["gravity"]               # sub is pulled downward each frame
+
+# --- More Options ---
+# slower_enemies / slower_sub / faster_sub   # speed axes (enemy 2x/half, sub 2x/half)
+# randomize_spawn                            # formation randomized per wave, not by difficulty
+# diver_spawn_rate                           # divers spawn in all 4 lanes (more rescues)
+# unlimited_oxygen                           # removes the oxygen mechanic (easier)
+# disable_enemies                            # no combat at all

@@ -3,7 +3,13 @@ import jax
 import jax.numpy as jnp
 from functools import partial
 from jaxatari.modification import JaxAtariModController
-from jaxatari.games.mods.seaquest.seaquest_mod_plugins import DisableEnemiesMod, NoDiversMod, EnemyMinesMod, FireBallsMod, UnlimitedOxygenMod, GravityMod, RandomColorEnemiesMod
+from jaxatari.games.mods.seaquest.seaquest_mod_plugins import (
+    DisableEnemiesMod, NoDiversMod, EnemyMinesMod, FireBallsMod, UnlimitedOxygenMod,
+    GravityMod, RandomColorEnemiesMod,
+    ChangeSubColorMod, ChangeEnemyColorMod, ChangeWaterColorMod, ChangeScoreColorMod, GrayscaleThemeMod,
+    FasterEnemiesMod, SlowerEnemiesMod, FasterSubMod, SlowerSubMod, FasterOxygenDrainMod,
+    DenseSpawnMod, RandomizeSpawnMod, DiverSpawnRateMod,
+)
 
 class SeaquestEnvMod(JaxAtariModController):
     """
@@ -12,17 +18,54 @@ class SeaquestEnvMod(JaxAtariModController):
     """
 
     REGISTRY = {
-        "disable_enemies": DisableEnemiesMod,
-        "no_divers": NoDiversMod,
-        "fireballs": FireBallsMod,
+        # ------------------------------------------------------------------ #
+        # Dynamic: change how the game plays (entities / oxygen / control)
+        # ------------------------------------------------------------------ #
+        "disable_enemies": DisableEnemiesMod,     # zero out sharks/subs/missiles
+        "no_divers": NoDiversMod,                 # remove divers entirely
+        "unlimited_oxygen": UnlimitedOxygenMod,   # oxygen never drains (easier)
+        "gravity": GravityMod,                    # sub is pulled downward each frame
+        # Speed axes (post-step; enemy speed has no constant to override)
+        "faster_enemies": FasterEnemiesMod,       # sharks/subs move 2x faster
+        "slower_enemies": SlowerEnemiesMod,       # sharks/subs move at half speed
+        "faster_sub": FasterSubMod,               # player sub moves 2x faster
+        "slower_sub": SlowerSubMod,               # player sub moves at half speed
+        # Oxygen
+        "faster_oxygen_drain": FasterOxygenDrainMod,  # oxygen depletes 2x faster
+        # Spawns
+        "dense_spawn": DenseSpawnMod,             # always 3-enemy formations
+        "randomize_spawn": RandomizeSpawnMod,     # formation randomized per wave, not by difficulty
+        "diver_spawn_rate": DiverSpawnRateMod,    # divers spawn in all 4 lanes (more rescues)
+
+        # ------------------------------------------------------------------ #
+        # Visual: sprite / colour swaps (no gameplay change on their own)
+        # ------------------------------------------------------------------ #
+        # Single-element recolours + grayscale theme (the `vis4` set)
+        "change_sub_color": ChangeSubColorMod,        # player sub + torpedo
+        "change_enemy_color": ChangeEnemyColorMod,    # sharks (via SHARK_DIFFICULTY_COLORS) + enemy subs
+        "change_water_color": ChangeWaterColorMod,    # background water tones
+        "change_score_color": ChangeScoreColorMod,    # score digits + life indicator
+        "grayscale_theme": GrayscaleThemeMod,         # whole scene desaturated
+
+        # Sprite swaps / other visual
+        "mines": EnemyMinesMod,                       # sharks + subs -> mine sprite
+        "random_color_enemies": RandomColorEnemiesMod,# per-shark random colours (logic in render() below)
+        "fireballs": FireBallsMod,                    # NOTE: stub (empty class) - not implemented yet
+
+        # ------------------------------------------------------------------ #
+        # Reward: reshape what the agent is rewarded for (none yet)
+        # ------------------------------------------------------------------ #
+        # --- planned (see config/sequence/seaquest_rew4.yaml) ---
+        # life_loss_penalty / diver_scoring_only / surface_load_bonus
+        # flatten_enemy_values / penalize_diver_shoot
+
+        # ------------------------------------------------------------------ #
+        # Not yet implemented (kept as reference from earlier drafts)
+        # ------------------------------------------------------------------ #
         # "peaceful_enemies": PeacefulEnemiesMod,
         # "lethal_divers": LethalDiversMod,
-        "unlimited_oxygen": UnlimitedOxygenMod,
-        "gravity": GravityMod,
-        "random_color_enemies": RandomColorEnemiesMod,
         # "polluted_water": PollutedWaterMod,
-        "mines": EnemyMinesMod,
-        # "fireball": ReplaceTorpedoWithFireBallMod
+        # "fireball": ReplaceTorpedoWithFireBallMod,
     }
 
     _mod_sprite_dir = os.path.join(os.path.dirname(__file__), "seaquest", "sprites")
