@@ -1,0 +1,18 @@
+# @package _global_
+# Ordered single-mod tasks; index 0 must be the base task (no mods). Mod keys are
+# from src/jaxatari/games/mods/kangaroo_mods.py. At most one mod per task.
+# Magnitude sequence: the same dynamics mod (thrown-coconut speed) scaled to
+# incrementally harder levels -- coconuts fly 2x/3x/4x/5x their base pixel speed,
+# shrinking the player's duck/jump reaction window.
+ENV_ID: kangaroo
+SEQUENCE: mag4
+TASK_MODS:
+  - []
+  - ["coconut_speed_x2"]
+  - ["coconut_speed_x3"]
+  - ["coconut_speed_x4"]
+  - ["coconut_speed_x5"]
+
+# --- More Options ---
+# change_monkey_speed   # enemy-speed axis (but throw rate is spawn-limited, so a weaker escalation)
+# jump_gravity          # floatier jump (reaction/control axis)

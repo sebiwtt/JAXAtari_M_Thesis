@@ -1,0 +1,478 @@
+{
+  "format": "jaxatari_play_state_v1",
+  "game": "kangaroo",
+  "mods": [
+    "no_jump"
+  ],
+  "state_tree": {
+    "KangarooState": {
+      "player": {
+        "PlayerState": {
+          "x": 107,
+          "y": 100,
+          "vel_x": -1,
+          "orientation": -1,
+          "height": 24,
+          "is_crouching": false,
+          "is_jumping": false,
+          "jump_base_y": 148,
+          "jump_counter": 0,
+          "jump_orientation": 0,
+          "landing_base_y": 148,
+          "is_climbing": false,
+          "climb_base_y": 148,
+          "climb_counter": 1,
+          "cooldown_counter": 0,
+          "is_crashing": false,
+          "chrash_timer": 0,
+          "punch_left": false,
+          "punch_right": false,
+          "last_stood_on_platform_y": 124,
+          "walk_animation": 6,
+          "punch_counter": 0,
+          "needs_release": false
+        }
+      },
+      "level": {
+        "LevelState": {
+          "timer": 1800,
+          "platform_positions": [
+            [
+              16,
+              172
+            ],
+            [
+              16,
+              124
+            ],
+            [
+              16,
+              76
+            ],
+            [
+              16,
+              28
+            ],
+            [
+              -1,
+              -1
+            ],
+            [
+              -1,
+              -1
+            ],
+            [
+              -1,
+              -1
+            ],
+            [
+              -1,
+              -1
+            ],
+            [
+              -1,
+              -1
+            ],
+            [
+              -1,
+              -1
+            ],
+            [
+              -1,
+              -1
+            ],
+            [
+              -1,
+              -1
+            ],
+            [
+              -1,
+              -1
+            ],
+            [
+              -1,
+              -1
+            ],
+            [
+              -1,
+              -1
+            ],
+            [
+              -1,
+              -1
+            ],
+            [
+              -1,
+              -1
+            ],
+            [
+              -1,
+              -1
+            ],
+            [
+              -1,
+              -1
+            ],
+            [
+              -1,
+              -1
+            ]
+          ],
+          "platform_sizes": [
+            [
+              128,
+              4
+            ],
+            [
+              128,
+              4
+            ],
+            [
+              128,
+              4
+            ],
+            [
+              128,
+              4
+            ],
+            [
+              -1,
+              -1
+            ],
+            [
+              -1,
+              -1
+            ],
+            [
+              -1,
+              -1
+            ],
+            [
+              -1,
+              -1
+            ],
+            [
+              -1,
+              -1
+            ],
+            [
+              -1,
+              -1
+            ],
+            [
+              -1,
+              -1
+            ],
+            [
+              -1,
+              -1
+            ],
+            [
+              -1,
+              -1
+            ],
+            [
+              -1,
+              -1
+            ],
+            [
+              -1,
+              -1
+            ],
+            [
+              -1,
+              -1
+            ],
+            [
+              -1,
+              -1
+            ],
+            [
+              -1,
+              -1
+            ],
+            [
+              -1,
+              -1
+            ],
+            [
+              -1,
+              -1
+            ]
+          ],
+          "ladder_positions": [
+            [
+              132,
+              132
+            ],
+            [
+              20,
+              84
+            ],
+            [
+              132,
+              36
+            ],
+            [
+              -1,
+              -1
+            ],
+            [
+              -1,
+              -1
+            ],
+            [
+              -1,
+              -1
+            ],
+            [
+              -1,
+              -1
+            ],
+            [
+              -1,
+              -1
+            ],
+            [
+              -1,
+              -1
+            ],
+            [
+              -1,
+              -1
+            ],
+            [
+              -1,
+              -1
+            ],
+            [
+              -1,
+              -1
+            ],
+            [
+              -1,
+              -1
+            ],
+            [
+              -1,
+              -1
+            ],
+            [
+              -1,
+              -1
+            ],
+            [
+              -1,
+              -1
+            ],
+            [
+              -1,
+              -1
+            ],
+            [
+              -1,
+              -1
+            ],
+            [
+              -1,
+              -1
+            ],
+            [
+              -1,
+              -1
+            ]
+          ],
+          "ladder_sizes": [
+            [
+              8,
+              36
+            ],
+            [
+              8,
+              36
+            ],
+            [
+              8,
+              36
+            ],
+            [
+              -1,
+              -1
+            ],
+            [
+              -1,
+              -1
+            ],
+            [
+              -1,
+              -1
+            ],
+            [
+              -1,
+              -1
+            ],
+            [
+              -1,
+              -1
+            ],
+            [
+              -1,
+              -1
+            ],
+            [
+              -1,
+              -1
+            ],
+            [
+              -1,
+              -1
+            ],
+            [
+              -1,
+              -1
+            ],
+            [
+              -1,
+              -1
+            ],
+            [
+              -1,
+              -1
+            ],
+            [
+              -1,
+              -1
+            ],
+            [
+              -1,
+              -1
+            ],
+            [
+              -1,
+              -1
+            ],
+            [
+              -1,
+              -1
+            ],
+            [
+              -1,
+              -1
+            ],
+            [
+              -1,
+              -1
+            ]
+          ],
+          "fruit_positions": [
+            [
+              119,
+              108
+            ],
+            [
+              39,
+              84
+            ],
+            [
+              59,
+              60
+            ]
+          ],
+          "fruit_actives": [
+            false,
+            true,
+            true
+          ],
+          "fruit_stages": [
+            0,
+            0,
+            0
+          ],
+          "bell_position": [
+            93,
+            36
+          ],
+          "bell_timer": 0,
+          "child_position": [
+            121,
+            13
+          ],
+          "child_velocity": 1,
+          "child_timer": 0,
+          "falling_coco_position": [
+            105,
+            17
+          ],
+          "falling_coco_dropping": false,
+          "falling_coco_counter": 1,
+          "falling_coco_skip_update": false,
+          "step_counter": 100,
+          "monkey_states": [
+            1,
+            0,
+            0,
+            0
+          ],
+          "monkey_positions": [
+            [
+              152,
+              45
+            ],
+            [
+              152,
+              5
+            ],
+            [
+              152,
+              5
+            ],
+            [
+              152,
+              5
+            ]
+          ],
+          "monkey_throw_timers": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "spawn_protection": false,
+          "coco_positions": [
+            [
+              -10,
+              -10
+            ],
+            [
+              -10,
+              -10
+            ],
+            [
+              -10,
+              -10
+            ],
+            [
+              -10,
+              -10
+            ]
+          ],
+          "coco_states": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "spawn_position": false,
+          "bell_animation": 0
+        }
+      },
+      "score": 300,
+      "current_level": 1,
+      "level_finished": false,
+      "levelup_timer": 0,
+      "reset_coords": false,
+      "levelup": false,
+      "lives": 3
+    }
+  }
+}

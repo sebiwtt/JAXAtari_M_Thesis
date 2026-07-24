@@ -1,0 +1,18 @@
+# @package _global_
+# Ordered single-mod tasks; index 0 must be the base task (no mods). Mod keys are
+# from src/jaxatari/games/mods/kangaroo_mods.py. At most one mod per task.
+ENV_ID: kangaroo
+SEQUENCE: vis4
+TASK_MODS:
+  - []
+  - ["change_kangaroo_color"]    # player sprite -> blue
+  - ["change_monkey_color"]      # ape sprites -> magenta
+  - ["change_background_color"]  # purple backdrop wall -> deep blue-grey
+  - ["change_score_color"]       # score digits -> cyan
+
+# --- More Options ---
+# grayscale_theme      # whole scene desaturated (wood/platforms kept brown)
+# ropes / chains       # ladder sprite swaps
+# tanks / chickens / dragons / polarbears / snakes   # enemy reskins
+# collectable_coins / collectable_diamonds           # fruit reskins
+# replace_bell_with_flame / replace_bell_with_cactus
