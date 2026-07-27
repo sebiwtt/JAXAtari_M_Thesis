@@ -9,6 +9,10 @@ from jaxatari.games.mods.seaquest.seaquest_mod_plugins import (
     ChangeSubColorMod, ChangeEnemyColorMod, ChangeWaterColorMod, ChangeScoreColorMod, GrayscaleThemeMod,
     FasterEnemiesMod, SlowerEnemiesMod, FasterSubMod, SlowerSubMod, FasterOxygenDrainMod,
     DenseSpawnMod, RandomizeSpawnMod, DiverSpawnRateMod,
+    EnemySpeedX2Mod, EnemySpeedX3Mod, EnemySpeedX4Mod, EnemySpeedX5Mod,
+    OxygenDrainX2Mod, OxygenDrainX3Mod, OxygenDrainX4Mod, OxygenDrainX5Mod,
+    LifeLossPenaltyMod, FlattenEnemyValuesMod, DiverScoringOnlyMod, SurfaceLoadBonusMod,
+    PenalizeDiverShootMod, SurvivalRewardMod,
 )
 
 class SeaquestEnvMod(JaxAtariModController):
@@ -37,6 +41,16 @@ class SeaquestEnvMod(JaxAtariModController):
         "randomize_spawn": RandomizeSpawnMod,     # formation randomized per wave, not by difficulty
         "diver_spawn_rate": DiverSpawnRateMod,    # divers spawn in all 4 lanes (more rescues)
 
+        # Magnitude ladders (mag4): same mod, incrementally harder
+        "enemy_speed_x2": EnemySpeedX2Mod,        # sharks/subs N px per base 1px move
+        "enemy_speed_x3": EnemySpeedX3Mod,
+        "enemy_speed_x4": EnemySpeedX4Mod,
+        "enemy_speed_x5": EnemySpeedX5Mod,
+        "oxygen_drain_x2": OxygenDrainX2Mod,      # tank empties N times faster
+        "oxygen_drain_x3": OxygenDrainX3Mod,
+        "oxygen_drain_x4": OxygenDrainX4Mod,
+        "oxygen_drain_x5": OxygenDrainX5Mod,
+
         # ------------------------------------------------------------------ #
         # Visual: sprite / colour swaps (no gameplay change on their own)
         # ------------------------------------------------------------------ #
@@ -53,11 +67,14 @@ class SeaquestEnvMod(JaxAtariModController):
         "fireballs": FireBallsMod,                    # NOTE: stub (empty class) - not implemented yet
 
         # ------------------------------------------------------------------ #
-        # Reward: reshape what the agent is rewarded for (none yet)
+        # Reward: reshape what the agent is rewarded for
         # ------------------------------------------------------------------ #
-        # --- planned (see config/sequence/seaquest_rew4.yaml) ---
-        # life_loss_penalty / diver_scoring_only / surface_load_bonus
-        # flatten_enemy_values / penalize_diver_shoot
+        "life_loss_penalty": LifeLossPenaltyMod,       # base score - 500 per life lost
+        "diver_scoring_only": DiverScoringOnlyMod,     # only surfacing/rescue scores (combat = 0)
+        "surface_load_bonus": SurfaceLoadBonusMod,     # +500 for surfacing with all 6 divers
+        "flatten_enemy_values": FlattenEnemyValuesMod, # every kill flat at 20 (no rescue scaling)
+        "penalize_diver_shoot": PenalizeDiverShootMod, # penalty for a torpedo passing through a diver
+        "survival_reward": SurvivalRewardMod,          # +1/step - 500 per death, no base (turtle)
 
         # ------------------------------------------------------------------ #
         # Not yet implemented (kept as reference from earlier drafts)

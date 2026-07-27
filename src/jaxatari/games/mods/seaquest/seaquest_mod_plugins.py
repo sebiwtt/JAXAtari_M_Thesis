@@ -313,8 +313,11 @@ class FasterEnemiesMod(JaxAtariPostStepModPlugin):
     """
     _MULT = 2
 
+    # NOTE: the mod controller only registers a post-step mod when 'run' is defined
+    # directly on the concrete class ('run' in cls.__dict__), so each xN rung below
+    # defines its own thin `run` delegating to this shared `_apply`.
     @partial(jax.jit, static_argnums=(0,))
-    def run(self, prev_state: SeaquestState, new_state: SeaquestState) -> SeaquestState:
+    def _apply(self, prev_state: SeaquestState, new_state: SeaquestState) -> SeaquestState:
         def amp(p, n):
             do = (p[:, 2] != 0) & (n[:, 2] != 0) & (jnp.abs(n[:, 0] - p[:, 0]) <= 4)
             x = jnp.where(do, p[:, 0] + (n[:, 0] - p[:, 0]) * self._MULT, n[:, 0])
@@ -326,6 +329,10 @@ class FasterEnemiesMod(JaxAtariPostStepModPlugin):
             shark_positions=amp(prev_state.shark_positions, new_state.shark_positions),
             sub_positions=amp(prev_state.sub_positions, new_state.sub_positions),
         )
+
+    @partial(jax.jit, static_argnums=(0,))
+    def run(self, prev_state: SeaquestState, new_state: SeaquestState) -> SeaquestState:
+        return self._apply(prev_state, new_state)
 
 
 class SlowerEnemiesMod(JaxAtariPostStepModPlugin):
@@ -399,10 +406,14 @@ class FasterOxygenDrainMod(JaxAtariPostStepModPlugin):
     _EXTRA = 1
 
     @partial(jax.jit, static_argnums=(0,))
-    def run(self, prev_state: SeaquestState, new_state: SeaquestState) -> SeaquestState:
+    def _apply(self, prev_state: SeaquestState, new_state: SeaquestState) -> SeaquestState:
         dropped = (new_state.oxygen < prev_state.oxygen) & (new_state.oxygen > 0)
         new_ox = jnp.maximum(new_state.oxygen - jnp.where(dropped, self._EXTRA, 0), 0)
         return new_state.replace(oxygen=new_ox.astype(new_state.oxygen.dtype))
+
+    @partial(jax.jit, static_argnums=(0,))
+    def run(self, prev_state: SeaquestState, new_state: SeaquestState) -> SeaquestState:
+        return self._apply(prev_state, new_state)
 
 
 # --- Spawns ------------------------------------------------------------------
@@ -451,3 +462,198 @@ class DiverSpawnRateMod(JaxAtariInternalModPlugin):
             diver_array=jnp.where(spawn_state.diver_array == 0, 1, spawn_state.diver_array)
         )
         return JaxSeaquest.spawn_divers(self._env, boosted, diver_positions, shark_positions, sub_positions, step_counter)
+
+
+# ============================================================================ #
+# Magnitude sequences: two ladders (enemy speed xN, oxygen drain xN), each the
+# same dynamics mod scaled to incrementally harder levels. See seaquest_mag4.yaml.
+# Each rung defines its own thin `run` (the controller only registers a post-step
+# mod when 'run' is in the concrete class __dict__) delegating to the base _apply.
+# ============================================================================ #
+
+# --- Enemy speed ladder (enemy_speed_xN): sharks/subs move N px per base 1px ---
+class EnemySpeedX2Mod(FasterEnemiesMod):
+    """Enemy speed x2."""
+    _MULT = 2
+
+    @partial(jax.jit, static_argnums=(0,))
+    def run(self, prev_state: SeaquestState, new_state: SeaquestState) -> SeaquestState:
+        return self._apply(prev_state, new_state)
+
+
+class EnemySpeedX3Mod(FasterEnemiesMod):
+    """Enemy speed x3."""
+    _MULT = 3
+
+    @partial(jax.jit, static_argnums=(0,))
+    def run(self, prev_state: SeaquestState, new_state: SeaquestState) -> SeaquestState:
+        return self._apply(prev_state, new_state)
+
+
+class EnemySpeedX4Mod(FasterEnemiesMod):
+    """Enemy speed x4."""
+    _MULT = 4
+
+    @partial(jax.jit, static_argnums=(0,))
+    def run(self, prev_state: SeaquestState, new_state: SeaquestState) -> SeaquestState:
+        return self._apply(prev_state, new_state)
+
+
+class EnemySpeedX5Mod(FasterEnemiesMod):
+    """Enemy speed x5. NOTE: at high base difficulty (enemy base speed 2+) the
+    amplified step can reach ~10 px/frame and could tunnel past the ~8 px overlap;
+    at typical eval difficulty (base 1 px) x5 = 5 px stays collision-safe."""
+    _MULT = 5
+
+    @partial(jax.jit, static_argnums=(0,))
+    def run(self, prev_state: SeaquestState, new_state: SeaquestState) -> SeaquestState:
+        return self._apply(prev_state, new_state)
+
+
+# --- Oxygen drain ladder (oxygen_drain_xN): tank empties N times faster ---------
+# _EXTRA = N - 1, so each 32-frame drain drops N units instead of 1.
+class OxygenDrainX2Mod(FasterOxygenDrainMod):
+    """Oxygen drain x2."""
+    _EXTRA = 1
+
+    @partial(jax.jit, static_argnums=(0,))
+    def run(self, prev_state: SeaquestState, new_state: SeaquestState) -> SeaquestState:
+        return self._apply(prev_state, new_state)
+
+
+class OxygenDrainX3Mod(FasterOxygenDrainMod):
+    """Oxygen drain x3."""
+    _EXTRA = 2
+
+    @partial(jax.jit, static_argnums=(0,))
+    def run(self, prev_state: SeaquestState, new_state: SeaquestState) -> SeaquestState:
+        return self._apply(prev_state, new_state)
+
+
+class OxygenDrainX4Mod(FasterOxygenDrainMod):
+    """Oxygen drain x4."""
+    _EXTRA = 3
+
+    @partial(jax.jit, static_argnums=(0,))
+    def run(self, prev_state: SeaquestState, new_state: SeaquestState) -> SeaquestState:
+        return self._apply(prev_state, new_state)
+
+
+class OxygenDrainX5Mod(FasterOxygenDrainMod):
+    """Oxygen drain x5. NOTE: a 64-unit tank empties in ~410 frames of diving; tune
+    down if the top rung is unwinnable (the sub can't reach the surface in time)."""
+    _EXTRA = 4
+
+    @partial(jax.jit, static_argnums=(0,))
+    def run(self, prev_state: SeaquestState, new_state: SeaquestState) -> SeaquestState:
+        return self._apply(prev_state, new_state)
+
+
+# ============================================================================ #
+# Reward-shaping mods (parallels the kangaroo/freeway/asteroids reward mods).
+# Additive shaping overrides _get_reward (pure reward change, score/dynamics
+# untouched); the two "restructure the scoring" mods use constants_overrides,
+# which is the clean mechanism (they change what a kill is worth at the source).
+# Base reward is `state.score - previous_state.score`.
+# ============================================================================ #
+
+class LifeLossPenaltyMod(JaxAtariInternalModPlugin):
+    """
+    Penalizes losing a life on top of the normal score-delta reward, shifting the
+    optimum away from greedy point-grabbing toward staying alive. A life is lost on
+    the frame `lives` decrements; a lives delta is a clean single-frame death signal
+    (max(0, .) ignores the +1 extra-life awarded every 10k points).
+    """
+    _PENALTY = 500
+
+    @partial(jax.jit, static_argnums=(0,))
+    def _get_reward(self, previous_state: SeaquestState, state: SeaquestState):
+        base = state.score - previous_state.score
+        lives_lost = jnp.maximum(previous_state.lives - state.lives, 0)
+        return (base - lives_lost * self._PENALTY).astype(jnp.int32)
+
+
+class FlattenEnemyValuesMod(JaxAtariInternalModPlugin):
+    """
+    Makes every enemy kill worth the same by removing the rescue-scaled bonus:
+    calculate_kill_points = SCORE_ENEMY_BASE + SCORE_ENEMY_STEP * successful_rescues
+    (capped at 90), so zeroing SCORE_ENEMY_STEP pins every kill at the flat base
+    (20). Removes the incentive to bank rescues before farming kills.
+
+    (Constants approach changes the actual score, so the every-10k extra life comes
+    slightly slower; negligible since diver rescues dominate the score.)
+    """
+    constants_overrides = {"SCORE_ENEMY_STEP": jnp.array(0)}
+
+
+class DiverScoringOnlyMod(JaxAtariInternalModPlugin):
+    """
+    Only diver rescues (surfacing) score; killing sharks/subs and colliding with
+    them give nothing. Both combat-scoring paths go through calculate_kill_points,
+    so zeroing SCORE_ENEMY_BASE and SCORE_ENEMY_STEP makes all combat worth 0 while
+    leaving the surfacing (diver + oxygen) bonus intact -> a pure "rescuer" policy.
+    Enemies are still lethal, so they must be dodged, just not farmed.
+    """
+    constants_overrides = {"SCORE_ENEMY_BASE": jnp.array(0), "SCORE_ENEMY_STEP": jnp.array(0)}
+
+
+class SurfaceLoadBonusMod(JaxAtariInternalModPlugin):
+    """
+    Adds a +_BONUS bonus for surfacing with a full load of 6 divers, on top of the
+    normal score. The base game increments successful_rescues exactly on a full-load
+    surface (step()'s scoring branch), so its rising edge is a clean once-per-load
+    signal. Rewards the risky "bank all six before surfacing" strategy.
+    """
+    _BONUS = 500
+
+    @partial(jax.jit, static_argnums=(0,))
+    def _get_reward(self, previous_state: SeaquestState, state: SeaquestState):
+        base = state.score - previous_state.score
+        full_load = state.successful_rescues > previous_state.successful_rescues
+        return (base + full_load.astype(jnp.int32) * self._BONUS).astype(jnp.int32)
+
+
+class PenalizeDiverShootMod(JaxAtariInternalModPlugin):
+    """
+    Penalizes -_PENALTY on any frame the player's torpedo overlaps a diver, on top
+    of the normal score, to discourage firing toward divers.
+
+    NOTE: in this implementation the torpedo does NOT kill divers (they're not in
+    the missile-collision check), so this penalizes shots that *pass through* a
+    diver rather than an actual kill -- the closest available proxy for "don't shoot
+    at divers".
+    """
+    _PENALTY = 50
+
+    @partial(jax.jit, static_argnums=(0,))
+    def _get_reward(self, previous_state: SeaquestState, state: SeaquestState):
+        base = state.score - previous_state.score
+        c = self._env.consts
+        m = state.player_missile_position
+        mx, my, mw, mh = m[0], m[1], c.MISSILE_SIZE[0], c.MISSILE_SIZE[1]
+        dv = state.diver_positions
+        overlap = (
+            (dv[:, 2] != 0)
+            & (m[2] != 0)
+            & (mx < dv[:, 0] + c.DIVER_SIZE[0]) & (mx + mw > dv[:, 0])
+            & (my < dv[:, 1] + c.DIVER_SIZE[1]) & (my + mh > dv[:, 1])
+        )
+        return (base - jnp.any(overlap).astype(jnp.int32) * self._PENALTY).astype(jnp.int32)
+
+
+class SurvivalRewardMod(JaxAtariInternalModPlugin):
+    """
+    Pure-survival task: +_PER_STEP every frame MINUS _DEATH_PENALTY per life lost,
+    and NO point score. Induces a "turtle/dodger" policy (stay alive, manage oxygen,
+    ignore scoring) -- deliberately distinct from life_loss_penalty (a cautious
+    scorer). The death penalty is the sharp, well-credited learning signal (a flat
+    per-step bonus alone is un-learnable and random already survives a while), the
+    same mechanism that makes life_loss_penalty learnable.
+    """
+    _PER_STEP = 1
+    _DEATH_PENALTY = 500
+
+    @partial(jax.jit, static_argnums=(0,))
+    def _get_reward(self, previous_state: SeaquestState, state: SeaquestState):
+        lives_lost = jnp.maximum(previous_state.lives - state.lives, 0)
+        return (self._PER_STEP - self._DEATH_PENALTY * lives_lost).astype(jnp.int32)
