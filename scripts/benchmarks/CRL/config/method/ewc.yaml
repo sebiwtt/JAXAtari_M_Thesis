@@ -1,3 +1,4 @@
+# @package _global_
 # Elastic Weight Consolidation (Kirkpatrick et al. 2017) - continual/ewc.py
 CL_METHOD: ewc
 EWC_COEF: 100.0               # lambda in 0.5*lambda*mean_i F_i (theta_i - theta*_i)^2; with

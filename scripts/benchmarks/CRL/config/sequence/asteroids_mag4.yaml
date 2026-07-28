@@ -1,3 +1,4 @@
+# @package _global_
 ENV_ID: asteroids
 SEQUENCE: mag4
 TASK_MODS:

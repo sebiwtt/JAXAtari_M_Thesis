@@ -1,3 +1,4 @@
+# @package _global_
 # Object-centric observations (MLP_Network torso)
 PIXEL_BASED: False
 TOTAL_TIMESTEPS: 100000000    # per task - identical budget for every task

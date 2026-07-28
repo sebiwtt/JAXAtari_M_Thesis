@@ -1,3 +1,4 @@
+# @package _global_
 ENV_ID: freeway
 SEQUENCE: vis4
 TASK_MODS:

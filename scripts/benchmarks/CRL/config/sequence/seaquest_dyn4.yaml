@@ -1,3 +1,4 @@
+# @package _global_
 ENV_ID: seaquest
 SEQUENCE: dyn4
 TASK_MODS:

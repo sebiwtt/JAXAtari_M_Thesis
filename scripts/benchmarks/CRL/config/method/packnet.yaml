@@ -1,3 +1,4 @@
+# @package _global_
 # PackNet iterative pruning (Mallya & Lazebnik 2018)
 CL_METHOD: packnet
 PACKNET_FINETUNE_FRAC: 0.2    # fraction of each task's iteration budget spent finetuning the

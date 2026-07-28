@@ -1,3 +1,4 @@
+# @package _global_
 # Pixel observations (Nature-CNN torso).
 # (NATIVE_DOWNSCALING / SMOOTH_IMAGE / GRAYSCALE) live in config.yaml.
 PIXEL_BASED: True

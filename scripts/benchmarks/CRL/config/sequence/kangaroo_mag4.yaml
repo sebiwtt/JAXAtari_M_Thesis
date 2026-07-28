@@ -1,3 +1,4 @@
+# @package _global_
 ENV_ID: kangaroo
 SEQUENCE: mag4
 TASK_MODS:
