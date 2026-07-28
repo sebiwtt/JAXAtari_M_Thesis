@@ -251,6 +251,7 @@ def run_continual(config: dict) -> None:
                     pixel_based=config["PIXEL_BASED"],
                     native_downscaling=config["NATIVE_DOWNSCALING"],
                     smooth_image=config["SMOOTH_IMAGE"],
+                    grayscale=config["GRAYSCALE"],
                     eval=True,
                 ),
                 env_id=config["ENV_ID"],

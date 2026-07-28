@@ -7,9 +7,13 @@ task to task. After each task the agent is re-evaluated on every task seen so fa
 a **retention/forgetting matrix** that measures how much of each task's skill survives (or
 is lost during) subsequent training.
 
-The framework is game-agnostic; a task sequence just names a game and its ordered mods. The
-sequences shipped right now are Pong variants (`config/sequence/pong_*`), with more games to
-follow.
+The framework is game-agnostic; a task sequence just names a game and its ordered mods.
+Shipped: **6 games** (asteroids, breakout, freeway, kangaroo, pong, seaquest) × **4 mod
+families** (`dyn4` dynamics, `vis4` visuals, `rew4` reward, `mag4` one parameter scaled
+×2..×5) = 24 sequences of 5 tasks each.
+
+For a full implementation-level write-up (wrappers, metric derivations, method deviations
+from MEAL, caveats), see [`METHODOLOGY.md`](METHODOLOGY.md).
 
 Four continual-learning methods are implemented behind a common interface, so they all run
 through the same orchestrator and are directly comparable:
@@ -63,21 +67,26 @@ For an ordered task list `T[0..n-1]` (`T[0]` is always the unmodified base task)
   happens to improve task j beyond its own post-training checkpoint (positive backward
   transfer), or go negative when performance craters below the random floor. Both read as
   "fully retained" / "fully forgotten" respectively once clamped, rather than a confusing
-  value outside `[0, 1]`.
+  value outside `[0, 1]`. If `R[j,j] ≤ R_rand[j]` (task j never learned above the floor) the
+  denominator is non-positive, so the cell is left NaN with a printed warning.
 - **`Drop[i, j] = 1 − Retention[i, j]`** (`j < i` only) — the same information, restricted
   to already-trained tasks and flipped so 0.0 = no forgetting, 1.0 = fully forgotten.
-- **`Forgetting[j]`** — the plain (unweighted) average of `Drop[i, j]` over every later
-  checkpoint `i > j`. The last task has no later checkpoint, so it's left undefined (NaN) —
-  by design, not padded out with an extra "finale" task just to fill the cell.
-  `mean_forgetting` averages this over all tasks except the last.
+- **`Forgetting[j]`** — recency-weighted average of `Drop[i, j]` over every later checkpoint
+  `i > j`, with `weight(i) = exp(-FORGETTING_LAMBDA * (i-j)/(last_task-j))`: degradation seen
+  soon after task j counts more than degradation long after. `FORGETTING_LAMBDA=0` recovers
+  the plain unweighted mean. The last task has no later checkpoint, so it's left undefined
+  (NaN) — by design, not padded out with an extra "finale" task just to fill the cell.
+  `mean_forgetting` averages this over all tasks except the last, and
+  `mean_retention = 1 - mean_forgetting` (its exact complement — *not* a flat per-cell average
+  of `Retention`, which would over-weight earlier tasks).
 
 `Retention`/`Drop`/`Forgetting` are MEAL/COOM-style: the agent is compared to *itself* (its
 own performance right after training task j), not to a converged reference. `R_rand` only
 rescales/clamps the range here — it isn't something the metric assumes has been converged
 to — so this needs no assumption that `R[j,j]` is a converged ceiling; it stays well-defined
-even if base task performance was still improving when its training budget ran out. MEAL's
-own version additionally recency-weights the later checkpoints (earlier degradation counts
-more); this implementation skips that weighting for simplicity.
+even if base task performance was still improving when its training budget ran out. The
+recency weighting follows MEAL, which doesn't publish the lambda it uses; `FORGETTING_LAMBDA`
+defaults to 1.0 here.
 
 Setting `EVAL_FULL_MATRIX=True` also fills the `j > i` cells (forward transfer to
 not-yet-trained tasks), at roughly double the eval cost. These extra cells feed `Retention`
@@ -108,7 +117,7 @@ CRL/
 │
 ├── config/                  # Hydra config, composed from three groups
 │   ├── config.yaml          #   shared defaults + the `defaults:` list
-│   ├── sequence/            #   which game + ordered task mods  (pong_dyn4, pong_vis4, pong_rew4)
+│   ├── sequence/            #   which game + ordered task mods  (24: 6 games × dyn4/vis4/rew4/mag4)
 │   ├── method/              #   which CL method + its hyperparams (ft, ewc, agem, packnet)
 │   └── modality/            #   observation pipeline + budget    (oc, pixel)
 │
@@ -160,7 +169,7 @@ Each run writes to `runs/{ENV_ID}_{EXP_NAME}_{oc|pixel}_{SEED}/`, e.g.
 
 | file | contents |
 |------|----------|
-| `matrix.json` / `matrix.npz` | `R`, `R_rand`, `Retention`, `Drop`, `Forgetting`, `mean_forgetting`, labels, task mods, method name |
+| `matrix.json` / `matrix.npz` | `R`, `R_rand`, `Retention`, `Drop`, `Forgetting`, `mean_forgetting`, `mean_retention`, labels, task mods, method name, wall-clock compute breakdown |
 | `task_{i}.cleanrl_model`      | agent checkpoint after task i (full params) |
 | `random_agent.cleanrl_model`  | the untrained floor agent |
 | `packnet_owner.msgpack`       | (PackNet only) owner tree, needed to recover per-task subnetworks |
