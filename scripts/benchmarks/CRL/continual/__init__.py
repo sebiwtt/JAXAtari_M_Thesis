@@ -1,8 +1,6 @@
 # =============================================================================
 # Continual-RL method registry
 # =============================================================================
-# One file per method (MEAL-style); `make_cl_method` is the only entry point
-# the orchestrator needs. See continual/base.py for the interface.
 
 from continual.agem import AGEM
 from continual.base import CLMethod

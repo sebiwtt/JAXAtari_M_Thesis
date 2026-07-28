@@ -1,9 +1,3 @@
-# @package _global_
-# Ordered single-mod tasks; index 0 must be the base task (no mods). Mod keys are
-# from src/jaxatari/games/mods/seaquest_mods.py. At most one mod per task.
-# Magnitude sequence: the same dynamics mod scaled to incrementally harder levels.
-# Two ladders are implemented; this sequence uses enemy speed, with oxygen drain
-# as the alternate (see the note below).
 ENV_ID: seaquest
 SEQUENCE: mag4
 TASK_MODS:
@@ -15,9 +9,3 @@ TASK_MODS:
 
 # --- More Options (alternate magnitude axis) ---
 # oxygen_drain_x2 / _x3 / _x4 / _x5   # tank empties 2x/3x/4x/5x faster
-#
-# NOTE: oxygen_drain is arguably the better axis for seaquest -- it's the game's
-# signature mechanic, a smooth fixed-rate knob, and doesn't compound with the base
-# game's built-in enemy-speed ramp the way enemy_speed does. Swap the ladders above
-# if you prefer it. (x5 caveats: enemy_speed can tunnel at high base difficulty;
-# oxygen_drain_x5 empties the tank in ~410 dive frames -- verify it stays winnable.)

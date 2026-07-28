@@ -1,6 +1,4 @@
-# @package _global_
-# Pixel observations (Nature-CNN torso). Rendering + conv cost force a smaller
-# env batch and budget than modality=oc. The pixel-only flags
+# Pixel observations (Nature-CNN torso).
 # (NATIVE_DOWNSCALING / SMOOTH_IMAGE / GRAYSCALE) live in config.yaml.
 PIXEL_BASED: True
 TOTAL_TIMESTEPS: 10000000     # per task - identical budget for every task

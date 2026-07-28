@@ -1,5 +1,5 @@
 # =============================================================================
-# Common interface for continual-RL methods (one file per method, MEAL-style)
+# Common interface for continual-RL methods 
 # =============================================================================
 # The orchestrator (ppo_crl_continual.py) drives every method identically:
 #

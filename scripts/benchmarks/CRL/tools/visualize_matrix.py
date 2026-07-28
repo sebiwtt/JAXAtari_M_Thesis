@@ -1,25 +1,17 @@
 # =============================================================================
 # Visualization tooling for CRL retention matrices
 # =============================================================================
-# Loads a run directory's matrix.{npz,json} (as saved by ppo_crl_continual.py) and
-# renders a single multi-panel figure summarizing continual-learning performance:
 #
-#   1. Retention heatmap     Retention[i,j] = clip((R[i,j]-R_rand[j]) / (R[j,j]-R_rand[j]), 0, 1)
-#                           (j <= i). 1.0 = fully retained, 0.0 = at/below random.
-#   2. Drop heatmap          Drop[i,j] = 1 - Retention[i,j]                        (j < i only)
-#                           0.0 = no forgetting, 1.0 = fully forgotten - the same data as the
-#                           Retention heatmap, restricted to already-trained tasks and flipped,
-#                           so later-task improvement on task j reads as "no forgetting"
-#                           rather than a >1.0 retention value.
-#   3. Raw-return heatmap    R[i,j], with the R_rand random-agent floor as a top row.
-#   4. Forgetting curves     one line per task j: drop on task j as later tasks i>j
-#                            are learned (shows *how fast* each task degrades).
-#   5. Aggregate metrics     final avg performance/retention, mean forgetting, backward transfer.
+#   1. Retention heatmap    
+#   2. Drop heatmap         
+#   3. Raw-return heatmap    
+#   4. Forgetting curves     
+#   5. Aggregate metrics     
 #
 # Usage:
 #   python tools/visualize_matrix.py runs/pong_ppo_crl_continual_pixel_1
-#   python tools/visualize_matrix.py runs/<run> --out fig.png        # custom output path
-#   python tools/visualize_matrix.py runs/<run> --show               # also open a window
+#   python tools/visualize_matrix.py runs/<run> --out fig.png      
+#   python tools/visualize_matrix.py runs/<run> --show              
 # =============================================================================
 
 from __future__ import annotations
@@ -31,7 +23,7 @@ import os
 import numpy as np
 import matplotlib
 
-matplotlib.use("Agg")  # switched to an interactive backend below if --show is set
+matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from matplotlib.colors import TwoSlopeNorm
 from matplotlib.lines import Line2D

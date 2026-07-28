@@ -3,9 +3,6 @@
 # =============================================================================
 # Shared TORSO (Network or MLP_Network, output dim 512) + two linear HEADS
 # (Actor, Critic); heads are byte-for-byte interchangeable between modalities.
-# `build_models` reconstructs the (stateless) modules from a config + action
-# dim, so any consumer of saved AgentParams (trainer, eval, continual methods)
-# can apply them without importing trainer internals.
 # =============================================================================
 
 from typing import NamedTuple, Sequence

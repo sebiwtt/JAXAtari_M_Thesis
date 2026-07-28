@@ -1,7 +1,4 @@
-# @package _global_
-# PackNet iterative pruning (Mallya & Lazebnik 2018) - continual/packnet.py
-# NOTE: each task gets an equal 1/len(TASK_MODS) share of the network's kernels,
-# so long sequences shrink per-task capacity.
+# PackNet iterative pruning (Mallya & Lazebnik 2018)
 CL_METHOD: packnet
 PACKNET_FINETUNE_FRAC: 0.2    # fraction of each task's iteration budget spent finetuning the
                               # kept weights after pruning (MEAL uses 0.5; the original paper

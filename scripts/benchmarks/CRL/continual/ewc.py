@@ -7,10 +7,6 @@
 # last/multi/online); later tasks add the quadratic penalty
 # 0.5 * EWC_COEF * mean_i F_i (theta_i - theta*_i)^2 to the PPO loss.
 #
-# The critic head gets zero Fisher (log pi does not depend on it), so only
-# torso + actor are anchored; the value function stays free to re-adapt on
-# each new task.
-#
 # Config keys: EWC_COEF (required > 0), EWC_MODE ("last" | "multi" | "online"),
 # EWC_DECAY, EWC_NORMALIZE_FISHER, EWC_FISHER_SAMPLES, EWC_FISHER_CHUNK.
 

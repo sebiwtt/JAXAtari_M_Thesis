@@ -1,6 +1,3 @@
-# @package _global_
-# Ordered single-mod tasks; index 0 must be the base task (no mods). Mod keys are
-# from src/jaxatari/games/mods/asteroids_mods.py. At most one mod per task.
 ENV_ID: asteroids
 SEQUENCE: rew4
 TASK_MODS:
@@ -13,5 +10,4 @@ TASK_MODS:
 # --- More Options ---
 # every_k_kills
 # wave_clear_bonus
-# flatten_asteroid_values  # NOTE: no-op under sign-clipped training reward (base
-#                          # 20/50/100 all clip to +1); use only with clipping off.
+# flatten_asteroid_values 

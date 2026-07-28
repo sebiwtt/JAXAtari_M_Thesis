@@ -12,4 +12,3 @@ TASK_MODS:
 
 # --- More Options ---
 # flatten_row_values  
-# top_row_only -> yields 0 reward -> useless

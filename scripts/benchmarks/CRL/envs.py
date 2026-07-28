@@ -1,8 +1,7 @@
 # =============================================================================
 # Environment factory for the JAXtari CRL benchmark
 # =============================================================================
-# Returns a thunk (zero-arg closure) building one fully wrapped env, later
-# vmapped over NUM_ENVS by the trainer / eval.
+# Returns a thunk (zero-arg closure) building one fully wrapped env, later vmapped over NUM_ENVS by the trainer / eval.
 
 import jaxatari
 from jaxatari.wrappers import (

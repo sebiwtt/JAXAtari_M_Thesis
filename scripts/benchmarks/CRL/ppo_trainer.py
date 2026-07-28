@@ -2,18 +2,6 @@
 # =============================================================================
 # PPO trainer for JAXtari (single-agent, on-policy, fully jitted)
 # Adapted from CleanRL's ppo_atari_envpool_xla_jax_scan.py
-#
-# CL-agnostic: continual-learning methods (see continual/) plug in through
-# exactly three generic parameters of train():
-#   cl_method            - a continual.base.CLMethod; only its two jit-safe
-#                          hooks are called: `loss_penalty` (inside ppo_loss)
-#                          and `transform_grads` (raw grads, before Adam)
-#   cl_state             - the method's device data (Fisher, memory, mask, ...),
-#                          threaded through update_ppo as a jit argument so
-#                          buffers are never baked into the executable
-#   return_final_rollout - additionally return a GAE-completed rollout of the
-#                          final policy; methods build their next cl_state
-#                          from it (EWC's Fisher, A-GEM's memory block)
 # =============================================================================
 
 

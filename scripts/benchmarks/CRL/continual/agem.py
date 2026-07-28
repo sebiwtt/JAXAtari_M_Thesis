@@ -3,18 +3,6 @@
 # =============================================================================
 # Episodic memory of past-task transitions; each PPO minibatch gradient is
 # projected so it cannot point against the memory gradient. Ported from MEAL
-# with two adaptations for this one-task-per-train()-call setup:
-#
-#  - Memory is filled once per finished task from a final-policy rollout (as in
-#    the original paper) instead of MEAL's continuous in-training circular
-#    buffer. Each task contributes exactly one fixed-size block, so uniform
-#    sampling over the concatenated memory is automatically task-balanced and
-#    no ptr/size masking is needed.
-#  - The reference gradient is a behavioral-cloning loss on memory (maximize
-#    log pi of the remembered actions, regress the critic onto stored returns),
-#    following MEAL: importance ratios exp(logpi_new - logpi_old) collapse to
-#    ~0 after cross-task policy drift, which zeroes every PPO-clipped
-#    contribution and makes a PPO memory gradient meaningless.
 #
 # Config keys: AGEM_MEMORY_PER_TASK, AGEM_SAMPLE_SIZE.
 

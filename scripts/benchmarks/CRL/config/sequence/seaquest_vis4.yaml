@@ -1,7 +1,3 @@
-# @package _global_
-# Ordered single-mod tasks; index 0 must be the base task (no mods). Mod keys are
-# from src/jaxatari/games/mods/seaquest_mods.py. At most one mod per task.
-# Mirrors the kangaroo vis4 set (four single-element recolours + a grayscale option).
 ENV_ID: seaquest
 SEQUENCE: vis4
 TASK_MODS:

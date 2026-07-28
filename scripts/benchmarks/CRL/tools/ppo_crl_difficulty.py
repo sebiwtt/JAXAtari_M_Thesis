@@ -13,7 +13,7 @@
 #      TRAIN_FULL_BUDGET). Each task branches independently from base (not chained).
 #   4. Rank tasks by steps-to-target: fewer steps = easier to adapt to.
 #
-# The target is a fixed return level (R_base), so "steps to reach it" is directly
+# The target is a fixed return level, so "steps to reach it" is directly
 # comparable across tasks. A task whose ceiling sits below the target simply never
 # crosses and is reported as "not reached" (inf), which is itself a difficulty signal.
 #

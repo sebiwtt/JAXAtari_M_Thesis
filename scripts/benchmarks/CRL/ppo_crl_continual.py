@@ -1,15 +1,10 @@
 # =============================================================================
 # Continual-RL evaluation harness for the JAXtari PPO trainer
 # =============================================================================
-# Trains ONE agent sequentially over ordered single-mod Pong tasks, carrying
+# Trains ONE agent sequentially over ordered single-mod tasks, carrying
 # params forward. CL_METHOD selects the continual-learning method; methods live
 # in continual/ (one file each) behind the continual.base.CLMethod interface,
-# so this loop is method-agnostic:
-#
-#   ft      - naive finetuning (no mitigation)
-#   ewc     - Elastic Weight Consolidation      (continual/ewc.py)
-#   agem    - Averaged Gradient Episodic Memory (continual/agem.py)
-#   packnet - PackNet iterative pruning         (continual/packnet.py)
+# so this loop is method-agnostic
 #
 # After each task, evaluates on every task seen so far:
 #
@@ -39,8 +34,6 @@
 #                     checkpoints - i.e. earlier tasks - more heavily); this uses the same
 #                     per-task-then-across-tasks averaging as mean_forgetting, so it's an
 #                     exact complement.
-#
-# EVAL_FULL_MATRIX also fills j > i: forward transfer to not-yet-trained tasks.
 #
 # Orchestration only; PPO lives in `ppo_trainer.train`, evaluation in
 # `ppo_eval.evaluate`, models in `networks.py`, envs in `envs.py`.
@@ -282,9 +275,7 @@ def run_continual(config: dict) -> None:
     if os.path.exists(eval_tmp_path):
         os.remove(eval_tmp_path)
 
-    # Retention (clamped to [0,1], unlike master's version) and its complement Drop, from
-    # which the MEAL-style unweighted Forgetting[j] is derived. Both come out of the same
-    # R/R_rand data already computed above - no extra evals needed.
+    # Retention (clamped to [0,1]) and its complement Drop, from which the unweighted Forgetting[j] is derived. Both come out of the same R/R_rand data already computed above 
     diag = np.diag(R)  # R[j, j]: performance right after finishing task j
     Retention = np.full((num_tasks, num_tasks), np.nan)
     Drop = np.full((num_tasks, num_tasks), np.nan)
@@ -301,10 +292,9 @@ def run_continual(config: dict) -> None:
             if j < i:  # Drop/forgetting only defined for already-trained tasks
                 Drop[i, j] = 1.0 - Retention[i, j]
 
-    # MEAL-style recency weighting: later checkpoints (further past task j's own training)
+    # Recency weighting: later checkpoints (further past task j's own training)
     # count less than checkpoints reached soon after. FORGETTING_LAMBDA=0 recovers the
-    # plain unweighted mean (all weights equal to 1); MEAL doesn't publish the value they
-    # use, so this defaults to 1.0 - a moderate decay, not derived from their paper.
+    # plain unweighted mean (all weights equal to 1)
     forgetting_lambda = float(config.get("FORGETTING_LAMBDA", 1.0))
     last_task = num_tasks - 1
     Forgetting = np.full(num_tasks, np.nan)

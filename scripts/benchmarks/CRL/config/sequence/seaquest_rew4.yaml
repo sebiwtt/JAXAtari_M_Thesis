@@ -1,12 +1,3 @@
-# @package _global_
-# Ordered single-mod tasks; index 0 must be the base task (no mods). Mod keys are
-# from src/jaxatari/games/mods/seaquest_mods.py. At most one mod per task.
-#
-# Chosen to induce DIFFERENT policies (-> measurable forgetting), as with kangaroo:
-#   life_loss_penalty     = cautious combatant (score, but don't die)
-#   diver_scoring_only    = rescuer            (ignore combat, collect divers)
-#   surface_load_bonus    = full-load surfacer (bank 6 divers, time the surfacing)
-#   flatten_enemy_values  = indiscriminate shooter (all kills worth the same)
 ENV_ID: seaquest
 SEQUENCE: rew4
 TASK_MODS:

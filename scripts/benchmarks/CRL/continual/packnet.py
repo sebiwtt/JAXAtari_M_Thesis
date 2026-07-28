@@ -19,11 +19,6 @@
 # the torso - with a shared head, a later task would otherwise overwrite
 # earlier tasks' policy outputs.
 #
-# The owner tree makes MEAL's per-task boolean mask stack, lax.cond dispatch,
-# and layer-name string matching unnecessary: all transitions run in plain
-# Python between train() calls; only the (precomputed) boolean grad mask
-# enters the jitted update as cl_state.
-#
 # Config keys: PACKNET_FINETUNE_FRAC, PACKNET_FINETUNE_LR.
 
 import flax

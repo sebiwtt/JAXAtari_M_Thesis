@@ -1,3 +1,2 @@
-# @package _global_
-# Naive finetuning - the no-mitigation baseline every CL method is compared against.
+# Naive finetuning
 CL_METHOD: ft

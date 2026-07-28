@@ -25,7 +25,6 @@ SEED: 0
 
 # wandb params
 ENTITY: "sebastian-wette-tu-darmstadt"
-# PROJECT: "debug"
 PROJECT: "Thesis-Test"
 
 # Derived from the composition (e.g. "ewc_dyn4"); the full run name becomes

@@ -3,14 +3,9 @@
 # Mirrors run_all_pqn.py's subprocess-pool pattern; independent OS processes rather
 # than pqn_agent.py's jax.vmap, since the continual loop does real disk I/O per task.
 #
-# Only SEED is passed per replicate - EVAL_SEED is left unset so it's derived from SEED
-# (SEED * 12 + 1, see config/config.yaml) rather than reusing one identical eval seed
-# across every replicate.
-#
 # Usage:
 #   python tools/run_all_crl_seeds.py --gpus 0,1,2,3 --seeds 0,1,2,3,4 --sequence pong_dyn4 --method ewc --modality oc
 #   python tools/run_all_crl_seeds.py --gpus 0 --seeds 0,1,2 -- TOTAL_TIMESTEPS=1000000
-# (anything after the flags above is forwarded verbatim to ppo_crl_continual.py)
 # =============================================================================
 
 import argparse
