@@ -221,12 +221,12 @@ tasks by adaptation cost. It shares the same config system:
 uv run python tools/ppo_crl_difficulty.py sequence=pong_dyn4 modality=oc
 ```
 
-To get the full difficulty picture for one game — the `dyn4`, `rew4` and `vis4` mod
-families — use the wrapper, which pins everything to a single GPU and runs the
-sequences strictly one after the other (one process each, so VRAM is released in between):
+To get the difficulty picture for one game — the `dyn4` and `vis4` mod families — use the
+wrapper, which pins everything to a single GPU and runs the sequences strictly one after
+the other (one process each, so VRAM is released in between):
 
 ```bash
-./tools/run_difficulty_game.sh 2 pong            # GPU 2, dyn4 + rew4 + vis4
+./tools/run_difficulty_game.sh 2 pong            # GPU 2, dyn4 + vis4
 ./tools/run_difficulty_game.sh 0 seaquest --modality pixel --seed 1
 nohup ./tools/run_difficulty_game.sh 2 pong > sweep_pong.log 2>&1 &
 ```
@@ -234,6 +234,14 @@ nohup ./tools/run_difficulty_game.sh 2 pong > sweep_pong.log 2>&1 &
 It warns if the requested GPU is already busy, skips sequences whose `runs/` dir exists
 (unless `--force`), logs each sequence to `runs/difficulty_logs/`, and prints a summary.
 `--help` lists all options; anything after `--` is forwarded to `ppo_crl_difficulty.py`.
+
+`rew4` and `mag4` are not in the default list. `rew4` in particular is unsound for this
+study as written: its mods replace the reward function, so the probe's return is measured
+on a different scale than the base-derived target, and the resulting ranking reflects
+reward scale rather than adaptation cost (`sparse_scoring` ranks "hardest" despite needing
+no policy change at all, while `reward_per_hit` clears the target on the first probe).
+Fixing it needs a task-relative target (normalize against `R_rand[j]` and a per-task
+ceiling, as the retention matrix does), not just a different `--seqs`.
 
 ---
 

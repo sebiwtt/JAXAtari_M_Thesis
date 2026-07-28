@@ -1,7 +1,11 @@
 #!/usr/bin/env bash
 # =============================================================================
-# Run the task-difficulty study for ONE game over the dyn/rew/vis mod families,
+# Run the task-difficulty study for ONE game over the dyn/vis mod families,
 # pinned to a single GPU and executed strictly one after the other.
+#
+# rew4 is deliberately not in the default list: its mods change the reward
+# function itself, so the probe's return and the base-derived target end up on
+# different scales and the ranking measures reward scale, not adaptation cost.
 #
 # Each sequence runs as its own process, so the VRAM of the previous one is
 # fully released before the next starts. The GPU stays occupied for the whole
@@ -13,7 +17,7 @@
 #   ./tools/run_difficulty_game.sh 2 pong
 #
 # Options:
-#   --seqs a,b,c   mod families to run, in order   (default: dyn4,rew4,vis4)
+#   --seqs a,b,c   mod families to run, in order   (default: dyn4,vis4)
 #   --modality m   oc | pixel                      (default: oc)
 #   --method m     ft | ewc | agem | packnet       (default: ft; only affects EXP_NAME here)
 #   --seed n       SEED passed to every sequence   (default: 0)
@@ -26,17 +30,17 @@ set -uo pipefail
 
 CRL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
-SEQS="dyn4,rew4,vis4"
+SEQS="dyn4,vis4"
 MODALITY="oc"
 METHOD="ft"
 SEED="0"
 FORCE=0
 DRY_RUN=0
 
-usage() { sed -n '3,22p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
+usage() { sed -n '3,26p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
 
+case "${1:-}" in -h|--help) usage 0 ;; esac
 [[ $# -lt 2 ]] && usage 1
-case "$1" in -h|--help) usage 0 ;; esac
 
 GPU="$1"; GAME="$2"; shift 2
 
