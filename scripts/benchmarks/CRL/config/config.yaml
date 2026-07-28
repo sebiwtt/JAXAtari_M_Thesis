@@ -63,6 +63,13 @@ EVAL_FULL_MATRIX: False
 
 NUM_STEPS: 128                 # rollout length per PPO iteration, per env
 
+# Per-task training budget. null = TOTAL_TIMESTEPS (from modality/) for every task.
+# A scalar keeps TOTAL_TIMESTEPS for the base task and applies this to every mod task,
+# e.g. TASK_TIMESTEPS=10000000 with modality=oc -> base 100M, each mod 10M.
+# A list sets one budget per task explicitly (must match len(TASK_MODS)):
+#   TASK_TIMESTEPS: [100000000, 10000000, 10000000, 10000000, 10000000]
+TASK_TIMESTEPS: null
+
 # Standard PPO hyperparameters - shouldn't normally need changing per task/mod.
 LEARNING_RATE: 0.00025
 ANNEAL_LR: True                # linear decay to 0 over NUM_ITERATIONS, reset fresh each task

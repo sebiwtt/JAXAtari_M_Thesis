@@ -80,6 +80,33 @@ def _print_vector(name: str, v: np.ndarray, labels: list[str]) -> None:
         print(f"  {label:>12}: {value:.3f}")
 
 
+def _resolve_task_timesteps(config: dict, num_tasks: int, batch_size: int) -> list[int]:
+    """Per-task training budget, defaulting to TOTAL_TIMESTEPS for every task.
+
+    TASK_TIMESTEPS overrides it and accepts either
+      - a scalar: the base task keeps TOTAL_TIMESTEPS, every mod task gets this
+        (e.g. TOTAL_TIMESTEPS=100_000_000, TASK_TIMESTEPS=10_000_000), or
+      - a list of length len(TASK_MODS): one explicit budget per task.
+    """
+    default = int(config["TOTAL_TIMESTEPS"])
+    spec = config.get("TASK_TIMESTEPS")
+    if spec is None:
+        budgets = [default] * num_tasks
+    elif isinstance(spec, (list, tuple)):
+        assert len(spec) == num_tasks, (
+            f"TASK_TIMESTEPS has {len(spec)} entries but TASK_MODS has {num_tasks} tasks"
+        )
+        budgets = [int(s) for s in spec]
+    else:
+        budgets = [default] + [int(spec)] * (num_tasks - 1)
+    for i, b in enumerate(budgets):
+        # train() needs NUM_ITERATIONS >= 1 (RTPT requires max_iterations > 0).
+        assert b // batch_size >= 1, (
+            f"task {i} budget {b:,} is below one batch ({batch_size:,} steps): no PPO iteration would run"
+        )
+    return budgets
+
+
 def _init_random_agent_params(config: dict, key: jax.random.PRNGKey) -> AgentParams:
     """Freshly-initialized, untrained params - the R_rand floor for retention.
 
@@ -132,9 +159,12 @@ def run_continual(config: dict) -> None:
     # Validates CL_METHOD and its config keys before any training starts.
     method = make_cl_method(config, num_tasks)
 
-    # Mirrors train()'s own derivation, needed here for the wandb step offset.
+    # Mirrors train()'s own derivation, needed here for the wandb step offsets: tasks may
+    # have different budgets, so each task starts where the previous one ended.
     batch_size = int(config["NUM_ENVS"] * config["NUM_STEPS"])
-    num_iterations = int(config["TOTAL_TIMESTEPS"] // batch_size)
+    task_timesteps = _resolve_task_timesteps(config, num_tasks, batch_size)
+    iters_per_task = [b // batch_size for b in task_timesteps]
+    step_offsets = [int(o) for o in np.cumsum([0] + iters_per_task[:-1])]
 
     group_name = f'{config["ENV_ID"]}_{config["EXP_NAME"]}_{"oc" if not config["PIXEL_BASED"] else "pixel"}'
     base_run_name = f'{group_name}_{config["SEED"]}'
@@ -207,9 +237,13 @@ def run_continual(config: dict) -> None:
         task_mods = task_mods_list[i]
         task_config = dict(config)
         task_config["TRAIN_MODS"] = tuple(task_mods)
+        task_config["TOTAL_TIMESTEPS"] = task_timesteps[i]  # drives NUM_ITERATIONS + LR anneal inside train()
 
         task_run_name = f"{base_run_name}_task{i}"
-        print(f"\n=== CRL task {i}/{num_tasks - 1}: mods={task_mods} (label={labels[i]!r}, cl_method={method.name}) ===")
+        print(
+            f"\n=== CRL task {i}/{num_tasks - 1}: mods={task_mods} (label={labels[i]!r}, "
+            f"cl_method={method.name}, {task_timesteps[i]:,} steps) ==="
+        )
         train_t0 = time.perf_counter()
         carried_params, cl_state = method.train_task(
             train,
@@ -218,7 +252,7 @@ def run_continual(config: dict) -> None:
             cl_state,
             i,
             run_name=task_run_name,
-            wandb_step_offset=i * num_iterations,
+            wandb_step_offset=step_offsets[i],
             manage_wandb=False,
             wandb_group=labels[i],
         )
@@ -345,6 +379,7 @@ def run_continual(config: dict) -> None:
         mean_retention=np.array(mean_retention),
         task_mods=np.array([json.dumps(m) for m in task_mods_list]),
         labels=np.array(labels),
+        task_timesteps=np.array(task_timesteps),
         env_id=np.array(config["ENV_ID"]),
         exp_name=np.array(config["EXP_NAME"]),
         train_time_per_task=train_time_per_task,
@@ -360,6 +395,7 @@ def run_continual(config: dict) -> None:
                 "cl_method": method.name,
                 "task_mods": task_mods_list,
                 "labels": labels,
+                "task_timesteps": task_timesteps,
                 "R": R.tolist(),
                 "R_rand": R_rand.tolist(),
                 "Retention": Retention.tolist(),

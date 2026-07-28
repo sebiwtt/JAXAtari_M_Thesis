@@ -2,6 +2,6 @@
 # Pixel observations (Nature-CNN torso).
 # (NATIVE_DOWNSCALING / SMOOTH_IMAGE / GRAYSCALE) live in config.yaml.
 PIXEL_BASED: True
-TOTAL_TIMESTEPS: 10000000     # per task - identical budget for every task
+TOTAL_TIMESTEPS: 10000000     # default per-task budget (TASK_TIMESTEPS can override it per task)
 NUM_ENVS: 512                 # parallel env instances (vmapped), the dominant memory cost
 NUM_MINIBATCHES: 256          # BATCH_SIZE (NUM_ENVS * NUM_STEPS) split into this many minibatches
