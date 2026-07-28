@@ -221,12 +221,12 @@ tasks by adaptation cost. It shares the same config system:
 uv run python tools/ppo_crl_difficulty.py sequence=pong_dyn4 modality=oc
 ```
 
-To get the full difficulty picture for one game — all four mod families (`dyn4`, `rew4`,
-`vis4`, `mag4`) — use the wrapper, which pins everything to a single GPU and runs the
+To get the full difficulty picture for one game — the `dyn4`, `rew4` and `vis4` mod
+families — use the wrapper, which pins everything to a single GPU and runs the
 sequences strictly one after the other (one process each, so VRAM is released in between):
 
 ```bash
-./tools/run_difficulty_game.sh 2 pong            # GPU 2, all four families
+./tools/run_difficulty_game.sh 2 pong            # GPU 2, dyn4 + rew4 + vis4
 ./tools/run_difficulty_game.sh 0 seaquest --modality pixel --seed 1
 nohup ./tools/run_difficulty_game.sh 2 pong > sweep_pong.log 2>&1 &
 ```

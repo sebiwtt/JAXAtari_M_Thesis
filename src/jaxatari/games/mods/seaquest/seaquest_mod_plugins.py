@@ -299,7 +299,8 @@ class GrayscaleThemeMod(JaxAtariInternalModPlugin):
 # --- Enemy speed -------------------------------------------------------------
 class FasterEnemiesMod(JaxAtariPostStepModPlugin):
     """
-    Makes sharks and enemy subs move faster horizontally (default 2x). Enemy speed
+    Makes sharks and enemy subs move faster horizontally (default 3x, a clear
+    departure from base to force a different dodging/aiming policy). Enemy speed
     has no constant (it's derived from difficulty in calculate_movement_speed), so
     this post-step mod amplifies the *pixel step* the base game took this frame --
     reading each enemy's dx and adding (_MULT-1) more px in its travel direction --
@@ -307,11 +308,12 @@ class FasterEnemiesMod(JaxAtariPostStepModPlugin):
 
     Only genuine per-frame moves are amplified (both frames active, |dx| <= 4), so
     spawns/despawns (large position jumps) are left alone. Tunnel note: the base
-    checks player-torpedo/enemy collisions before this runs, so at 2x the enemy
-    lands 2 px further -- still well within the ~8 px sprite overlap, so kills
-    still register.
+    checks player-torpedo/enemy collisions before this runs; at 3x the enemy lands
+    3 px further (up to 6 px at high base difficulty) -- still within the ~8 px
+    sprite overlap, so kills still register. (The enemy_speed_xN ladder overrides
+    _MULT explicitly, so it is unaffected by this default.)
     """
-    _MULT = 2
+    _MULT = 3
 
     # NOTE: the mod controller only registers a post-step mod when 'run' is defined
     # directly on the concrete class ('run' in cls.__dict__), so each xN rung below
@@ -358,13 +360,14 @@ class SlowerEnemiesMod(JaxAtariPostStepModPlugin):
 # --- Player-sub speed --------------------------------------------------------
 class FasterSubMod(JaxAtariPostStepModPlugin):
     """
-    Makes the player submarine move faster (default 2x). The base game moves the
-    sub +/-1 px/frame (hardcoded), so this post-step mod amplifies the voluntary
-    move this frame by (_MULT-1) extra px, clamped to PLAYER_BOUNDS. Blocked frames
+    Makes the player submarine move faster (default 3x, a clear departure from base
+    to force a different control/dodging policy). The base game moves the sub
+    +/-1 px/frame (hardcoded), so this post-step mod amplifies the voluntary move
+    this frame by (_MULT-1) extra px, clamped to PLAYER_BOUNDS. Blocked frames
     (surfacing/refuel, where the base holds the sub still) have dx=0, so they're
     unaffected.
     """
-    _MULT = 2
+    _MULT = 3
 
     @partial(jax.jit, static_argnums=(0,))
     def run(self, prev_state: SeaquestState, new_state: SeaquestState) -> SeaquestState:
@@ -657,3 +660,99 @@ class SurvivalRewardMod(JaxAtariInternalModPlugin):
     def _get_reward(self, previous_state: SeaquestState, state: SeaquestState):
         lives_lost = jnp.maximum(previous_state.lives - state.lives, 0)
         return (self._PER_STEP - self._DEATH_PENALTY * lives_lost).astype(jnp.int32)
+
+
+# --- Extended ladders (x6..x10): steep top rungs for forcing a qualitatively
+# --- different policy (see the mag4 forgetting discussion). These are extreme:
+# ---   enemy_speed >= x8 moves ~8+ px/frame -> can tunnel past the torpedo (kills
+# ---     stop registering), which itself changes the optimum toward pure avoidance;
+# ---   oxygen_drain x10 empties the 64-unit tank in ~205 dive frames -> the sub can
+# ---     barely leave the surface. Verify winnability before relying on the top rungs.
+class EnemySpeedX6Mod(FasterEnemiesMod):
+    """Enemy speed x6."""
+    _MULT = 6
+
+    @partial(jax.jit, static_argnums=(0,))
+    def run(self, prev_state: SeaquestState, new_state: SeaquestState) -> SeaquestState:
+        return self._apply(prev_state, new_state)
+
+
+class EnemySpeedX7Mod(FasterEnemiesMod):
+    """Enemy speed x7."""
+    _MULT = 7
+
+    @partial(jax.jit, static_argnums=(0,))
+    def run(self, prev_state: SeaquestState, new_state: SeaquestState) -> SeaquestState:
+        return self._apply(prev_state, new_state)
+
+
+class EnemySpeedX8Mod(FasterEnemiesMod):
+    """Enemy speed x8 (can tunnel: enemies may phase through the torpedo)."""
+    _MULT = 8
+
+    @partial(jax.jit, static_argnums=(0,))
+    def run(self, prev_state: SeaquestState, new_state: SeaquestState) -> SeaquestState:
+        return self._apply(prev_state, new_state)
+
+
+class EnemySpeedX9Mod(FasterEnemiesMod):
+    """Enemy speed x9 (can tunnel)."""
+    _MULT = 9
+
+    @partial(jax.jit, static_argnums=(0,))
+    def run(self, prev_state: SeaquestState, new_state: SeaquestState) -> SeaquestState:
+        return self._apply(prev_state, new_state)
+
+
+class EnemySpeedX10Mod(FasterEnemiesMod):
+    """Enemy speed x10 (can tunnel)."""
+    _MULT = 10
+
+    @partial(jax.jit, static_argnums=(0,))
+    def run(self, prev_state: SeaquestState, new_state: SeaquestState) -> SeaquestState:
+        return self._apply(prev_state, new_state)
+
+
+class OxygenDrainX6Mod(FasterOxygenDrainMod):
+    """Oxygen drain x6."""
+    _EXTRA = 5
+
+    @partial(jax.jit, static_argnums=(0,))
+    def run(self, prev_state: SeaquestState, new_state: SeaquestState) -> SeaquestState:
+        return self._apply(prev_state, new_state)
+
+
+class OxygenDrainX7Mod(FasterOxygenDrainMod):
+    """Oxygen drain x7."""
+    _EXTRA = 6
+
+    @partial(jax.jit, static_argnums=(0,))
+    def run(self, prev_state: SeaquestState, new_state: SeaquestState) -> SeaquestState:
+        return self._apply(prev_state, new_state)
+
+
+class OxygenDrainX8Mod(FasterOxygenDrainMod):
+    """Oxygen drain x8."""
+    _EXTRA = 7
+
+    @partial(jax.jit, static_argnums=(0,))
+    def run(self, prev_state: SeaquestState, new_state: SeaquestState) -> SeaquestState:
+        return self._apply(prev_state, new_state)
+
+
+class OxygenDrainX9Mod(FasterOxygenDrainMod):
+    """Oxygen drain x9."""
+    _EXTRA = 8
+
+    @partial(jax.jit, static_argnums=(0,))
+    def run(self, prev_state: SeaquestState, new_state: SeaquestState) -> SeaquestState:
+        return self._apply(prev_state, new_state)
+
+
+class OxygenDrainX10Mod(FasterOxygenDrainMod):
+    """Oxygen drain x10 (~205 dive frames of air -- verify winnable)."""
+    _EXTRA = 9
+
+    @partial(jax.jit, static_argnums=(0,))
+    def run(self, prev_state: SeaquestState, new_state: SeaquestState) -> SeaquestState:
+        return self._apply(prev_state, new_state)

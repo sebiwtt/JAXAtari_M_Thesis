@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-# Run the task-difficulty study for ONE game over all four mod families,
+# Run the task-difficulty study for ONE game over the dyn/rew/vis mod families,
 # pinned to a single GPU and executed strictly one after the other.
 #
 # Each sequence runs as its own process, so the VRAM of the previous one is
@@ -13,7 +13,7 @@
 #   ./tools/run_difficulty_game.sh 2 pong
 #
 # Options:
-#   --seqs a,b,c   mod families to run, in order   (default: dyn4,rew4,vis4,mag4)
+#   --seqs a,b,c   mod families to run, in order   (default: dyn4,rew4,vis4)
 #   --modality m   oc | pixel                      (default: oc)
 #   --method m     ft | ewc | agem | packnet       (default: ft; only affects EXP_NAME here)
 #   --seed n       SEED passed to every sequence   (default: 0)
@@ -26,14 +26,14 @@ set -uo pipefail
 
 CRL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
-SEQS="dyn4,rew4,vis4,mag4"
+SEQS="dyn4,rew4,vis4"
 MODALITY="oc"
 METHOD="ft"
 SEED="0"
 FORCE=0
 DRY_RUN=0
 
-usage() { sed -n '3,28p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
+usage() { sed -n '3,22p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
 
 [[ $# -lt 2 ]] && usage 1
 case "$1" in -h|--help) usage 0 ;; esac
@@ -114,9 +114,10 @@ for fam in "${SEQ_LIST[@]}"; do
     continue
   fi
 
+  # ${a[@]+"${a[@]}"} — plain "${a[@]}" on an empty array trips `set -u` on bash 3.2.
   cmd=(uv run python tools/ppo_crl_difficulty.py
        "sequence=$sequence" "method=$METHOD" "modality=$MODALITY" "SEED=$SEED"
-       "${EXTRA_ARGS[@]}")
+       ${EXTRA_ARGS[@]+"${EXTRA_ARGS[@]}"})
 
   echo ""
   echo ">>> [$(date '+%F %T')] $sequence"

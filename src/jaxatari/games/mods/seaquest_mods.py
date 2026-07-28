@@ -10,7 +10,9 @@ from jaxatari.games.mods.seaquest.seaquest_mod_plugins import (
     FasterEnemiesMod, SlowerEnemiesMod, FasterSubMod, SlowerSubMod, FasterOxygenDrainMod,
     DenseSpawnMod, RandomizeSpawnMod, DiverSpawnRateMod,
     EnemySpeedX2Mod, EnemySpeedX3Mod, EnemySpeedX4Mod, EnemySpeedX5Mod,
+    EnemySpeedX6Mod, EnemySpeedX7Mod, EnemySpeedX8Mod, EnemySpeedX9Mod, EnemySpeedX10Mod,
     OxygenDrainX2Mod, OxygenDrainX3Mod, OxygenDrainX4Mod, OxygenDrainX5Mod,
+    OxygenDrainX6Mod, OxygenDrainX7Mod, OxygenDrainX8Mod, OxygenDrainX9Mod, OxygenDrainX10Mod,
     LifeLossPenaltyMod, FlattenEnemyValuesMod, DiverScoringOnlyMod, SurfaceLoadBonusMod,
     PenalizeDiverShootMod, SurvivalRewardMod,
 )
@@ -46,10 +48,20 @@ class SeaquestEnvMod(JaxAtariModController):
         "enemy_speed_x3": EnemySpeedX3Mod,
         "enemy_speed_x4": EnemySpeedX4Mod,
         "enemy_speed_x5": EnemySpeedX5Mod,
+        "enemy_speed_x6": EnemySpeedX6Mod,        # x8+ can tunnel past the torpedo
+        "enemy_speed_x7": EnemySpeedX7Mod,
+        "enemy_speed_x8": EnemySpeedX8Mod,
+        "enemy_speed_x9": EnemySpeedX9Mod,
+        "enemy_speed_x10": EnemySpeedX10Mod,
         "oxygen_drain_x2": OxygenDrainX2Mod,      # tank empties N times faster
         "oxygen_drain_x3": OxygenDrainX3Mod,
         "oxygen_drain_x4": OxygenDrainX4Mod,
         "oxygen_drain_x5": OxygenDrainX5Mod,
+        "oxygen_drain_x6": OxygenDrainX6Mod,
+        "oxygen_drain_x7": OxygenDrainX7Mod,
+        "oxygen_drain_x8": OxygenDrainX8Mod,
+        "oxygen_drain_x9": OxygenDrainX9Mod,
+        "oxygen_drain_x10": OxygenDrainX10Mod,    # ~205 dive frames of air (verify winnable)
 
         # ------------------------------------------------------------------ #
         # Visual: sprite / colour swaps (no gameplay change on their own)
