@@ -2,12 +2,12 @@ ENV_ID: seaquest
 SEQUENCE: vis4
 TASK_MODS:
   - []
-  - ["change_sub_color"]     # player submarine + torpedo -> orange
-  - ["change_enemy_color"]   # sharks + enemy subs -> magenta
-  - ["change_water_color"]   # water background -> dark teal
-  - ["change_score_color"]   # score digits + life indicator -> cyan
+  - ["change_sub_color"]    
+  - ["random_color_enemies"]   
+  - ["change_water_color"]  
+  - ["mines"]   
 
 # --- More Options ---
-# grayscale_theme            # whole scene desaturated to luminance grayscale
-# mines                      # swap sharks + subs for mine sprites
-# random_color_enemies       # per-shark random colours
+# grayscale_theme        
+# change_enemy_color
+# change_score_color

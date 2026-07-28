@@ -125,6 +125,7 @@ CRL/
 │   ├── run_all_crl_seeds.py #   launch N seeds across GPUs
 │   ├── visualize_matrix.py  #   render a run's retention/forgetting matrix to PNG
 │   ├── ppo_crl_difficulty.py#   rank tasks by adaptation difficulty (separate study)
+│   ├── run_difficulty_game.sh#  all 4 mod families of one game, sequentially, on one GPU
 │   └── video_utils.py       #   final-rollout video / obs-frame capture
 │
 └── runs/                    # outputs (git-ignored) — one dir per run
@@ -219,6 +220,20 @@ tasks by adaptation cost. It shares the same config system:
 ```bash
 uv run python tools/ppo_crl_difficulty.py sequence=pong_dyn4 modality=oc
 ```
+
+To get the full difficulty picture for one game — all four mod families (`dyn4`, `rew4`,
+`vis4`, `mag4`) — use the wrapper, which pins everything to a single GPU and runs the
+sequences strictly one after the other (one process each, so VRAM is released in between):
+
+```bash
+./tools/run_difficulty_game.sh 2 pong            # GPU 2, all four families
+./tools/run_difficulty_game.sh 0 seaquest --modality pixel --seed 1
+nohup ./tools/run_difficulty_game.sh 2 pong > sweep_pong.log 2>&1 &
+```
+
+It warns if the requested GPU is already busy, skips sequences whose `runs/` dir exists
+(unless `--force`), logs each sequence to `runs/difficulty_logs/`, and prints a summary.
+`--help` lists all options; anything after `--` is forwarded to `ppo_crl_difficulty.py`.
 
 ---
 

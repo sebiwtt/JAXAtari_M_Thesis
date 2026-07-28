@@ -2,11 +2,11 @@ ENV_ID: seaquest
 SEQUENCE: rew4
 TASK_MODS:
   - []
-  - ["life_loss_penalty"]     # base score - 500 per life lost
-  - ["diver_scoring_only"]    # only surfacing/rescue scores; combat gives 0
-  - ["surface_load_bonus"]    # +500 for surfacing with all 6 divers
-  - ["flatten_enemy_values"]  # every kill flat at 20 (removes the rescue-scaled bonus)
+  - ["life_loss_penalty"]     
+  - ["diver_scoring_only"]   
+  - ["penalize_diver_shoot"]   
+  - ["survival_reward"] 
 
 # --- More Options ---
-# penalize_diver_shoot       # -50 when a torpedo passes through a diver (divers aren't killable here)
-# survival_reward            # +1/step - 500 per death, no base score (turtle policy)
+# surface_load_bonus
+# flatten_enemy_values
