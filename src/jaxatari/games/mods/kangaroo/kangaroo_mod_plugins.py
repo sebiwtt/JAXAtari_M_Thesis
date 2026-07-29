@@ -1920,6 +1920,38 @@ class CoconutSpeedX5Mod(_FasterThrownCoconutsMod):
     _SPEED = 5
 
 
+# --- Extended rungs (x6..x10) for a wider magnitude spread. Tunnelling ceiling:
+# --- the coconut(2px)+player(8px) collision window is 11px wide (measured), so at
+# --- any phase at least one frame lands in it for _SPEED <= 11 -- all rungs here
+# --- (up to x10, and even x11) still reliably register hits, i.e. genuinely
+# --- harder. Tunnelling (a phase that skips the whole window in one frame) only
+# --- begins at _SPEED >= 12; going that fast and staying coherent would need
+# --- sub-stepped collision.
+class CoconutSpeedX6Mod(_FasterThrownCoconutsMod):
+    """Thrown-coconut speed x6."""
+    _SPEED = 6
+
+
+class CoconutSpeedX7Mod(_FasterThrownCoconutsMod):
+    """Thrown-coconut speed x7."""
+    _SPEED = 7
+
+
+class CoconutSpeedX8Mod(_FasterThrownCoconutsMod):
+    """Thrown-coconut speed x8."""
+    _SPEED = 8
+
+
+class CoconutSpeedX9Mod(_FasterThrownCoconutsMod):
+    """Thrown-coconut speed x9 (collision-safe)."""
+    _SPEED = 9
+
+
+class CoconutSpeedX10Mod(_FasterThrownCoconutsMod):
+    """Thrown-coconut speed x10 (collision-safe; ceiling is x11, x12+ tunnels)."""
+    _SPEED = 10
+
+
 # ============================================================================ #
 # 7. Control-restriction dynamic mods: disable one of the player's abilities.
 #    no_punch / no_crouch strip the FIRE / DOWN button from the action and then

@@ -15,6 +15,7 @@ from jaxatari.games.mods.kangaroo.kangaroo_mod_plugins import (
     LifeLossPenaltyMod, RewardPerFloorMod, ReachJoeyOnlyMod, FruitOnlyMod, PunchOnlyScoringMod,
     SurvivalRewardMod, RewardUpperFloorsMod,
     CoconutSpeedX2Mod, CoconutSpeedX3Mod, CoconutSpeedX4Mod, CoconutSpeedX5Mod,
+    CoconutSpeedX6Mod, CoconutSpeedX7Mod, CoconutSpeedX8Mod, CoconutSpeedX9Mod, CoconutSpeedX10Mod,
     NoPunchMod, NoCrouchMod, NoJumpMod,
 )
 
@@ -35,6 +36,11 @@ KANGAROO_MOD_REGISTRY = {
     "coconut_speed_x3": CoconutSpeedX3Mod,
     "coconut_speed_x4": CoconutSpeedX4Mod,
     "coconut_speed_x5": CoconutSpeedX5Mod,
+    "coconut_speed_x6": CoconutSpeedX6Mod,   # all collision-safe: the hit window is
+    "coconut_speed_x7": CoconutSpeedX7Mod,   # 11px, so speeds <= 11 always register;
+    "coconut_speed_x8": CoconutSpeedX8Mod,   # tunnelling only starts at x12+
+    "coconut_speed_x9": CoconutSpeedX9Mod,
+    "coconut_speed_x10": CoconutSpeedX10Mod,
 
     # Remove / disable entities
     "no_bell": NoBellMod,
