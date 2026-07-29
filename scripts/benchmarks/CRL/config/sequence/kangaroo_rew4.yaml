@@ -4,9 +4,9 @@ SEQUENCE: rew4
 TASK_MODS:
   - []
   - ["life_loss_penalty"]    # base score - 200 per life lost
-  - ["punch_only_scoring"]   # only punching monkeys / the falling coconut scores
   - ["reward_per_floor"]     # base + dense climb bonus + per-floor milestone (random floor = 0)
   - ["survival_reward"]      # +1/step - 200 per death, no base score (pure survival)
+  - ["punch_only_scoring"]   # only punching monkeys / the falling coconut scores
 
 # --- More Options (alternate reward axes) ---
 # reach_joey_only        # base + dense approach-Joey distance bonus (goal-seeker; random baseline ~127)
