@@ -4,6 +4,6 @@ SEQUENCE: rew4
 TASK_MODS:
   - []
   - ["reward_per_lane"]
-  - ["collision_penalty"]
   - ["reward_middle_lane"]
+  - ["collision_penalty"]
   - ["clean_crossing"]

@@ -4,8 +4,8 @@ SEQUENCE: rew4
 TASK_MODS:
   - []
   - ["life_loss_penalty"]
-  - ["large_asteroid_only"]
   - ["small_asteroid_only"]
+  - ["large_asteroid_only"]
   - ["survival_reward"]
 
 # --- More Options ---

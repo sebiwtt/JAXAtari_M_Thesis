@@ -544,3 +544,52 @@ class CleanCrossingMod(JaxAtariInternalModPlugin):
         scored = state.score > previous_state.score
         clean = jnp.logical_not(previous_state.hit_since_reset)
         return jnp.where(jnp.logical_and(scored, clean), 1, 0).astype(jnp.int32)
+
+
+# --- Grayscale theme ---------------------------------------------------------
+import numpy as np
+
+_FREEWAY_DIR = os.path.join(get_base_sprite_dir(), "freeway")
+_CAR_FILES = ['car_dark_red', 'car_light_green', 'car_dark_green', 'car_light_red', 'car_blue',
+              'car_brown', 'car_light_blue', 'car_red', 'car_green', 'car_yellow']
+_SCORE_BLINK = [(210, 210, 64), (210, 64, 64), (64, 210, 64), (64, 64, 210), (210, 64, 210), (64, 210, 210)]
+
+
+def _fload(fname):
+    return _jr.loadFrame(os.path.join(_FREEWAY_DIR, fname))
+
+
+def _to_gray(arr):
+    """Luminance-grayscale an RGBA sprite array (alpha preserved)."""
+    a = np.array(arr, dtype=np.uint8)
+    r, g, b = a[..., 0].astype(np.float32), a[..., 1].astype(np.float32), a[..., 2].astype(np.float32)
+    lum = np.round(0.299 * r + 0.587 * g + 0.114 * b).astype(np.uint8)
+    a[..., 0] = a[..., 1] = a[..., 2] = lum
+    return jnp.asarray(a)
+
+
+def _gray_rgb(rgb):
+    l = int(round(0.299 * rgb[0] + 0.587 * rgb[1] + 0.114 * rgb[2]))
+    return [l, l, l]
+
+
+class GrayscaleThemeMod(JaxAtariInternalModPlugin):
+    """
+    Desaturates the whole scene to luminance grayscale: the road/background, the
+    chicken, all ten car sprites, and the score digits are grayscaled via
+    asset_overrides. The score's end-game blink cycle is driven by the
+    SCORE_BLINK_COLORS constant (recoloured onto the digits by the renderer), so
+    that is grayscaled via constants_overrides too -- otherwise the score would
+    flash in colour near time-up. (CAR_COLORS defaults to None, i.e. cars use their
+    baked sprite colours, so graying the car sprites directly is what desaturates
+    them; nothing looks up a car colour in the palette, so no lookup breaks.)
+    """
+    constants_overrides = {
+        "SCORE_BLINK_COLORS": jnp.array([_gray_rgb(c) for c in _SCORE_BLINK]),
+    }
+    asset_overrides = {
+        'background':   {'name': 'background', 'type': 'background', 'data': _to_gray(_bg_array)},
+        'player':       {'name': 'player', 'type': 'group', 'data': [_to_gray(_fload(f)) for f in _player_files]},
+        'score_digits': {'name': 'score_digits', 'type': 'digits', 'data': _to_gray(_score_array)},
+        **{name: {'name': name, 'type': 'single', 'data': _to_gray(_fload(name + '.npy'))} for name in _CAR_FILES},
+    }

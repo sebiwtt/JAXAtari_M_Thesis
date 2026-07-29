@@ -1,6 +1,6 @@
 import os
 from jaxatari.modification import JaxAtariModController
-from jaxatari.games.mods.freeway.freeway_mod_plugins import StopAllCarsMod, StaticCarsMod, SlowCarsMod, BlackCarsMod, CenterCarsOnResetMod, HallOfFameMod, BikesMod, FrogMod, NewLaneColorsMod, GreenScoreMod, ChangePlayerColorMod, ChangeCarColorMod, ChangeRoadColorMod, ChangeScoreColorMod, ChangeCarSpeedMod, FasterPlayerMod, SlowerPlayerMod, ChangeCarSpawningMod, InvertCarsMod, CarSpeedX2Mod, CarSpeedX3Mod, CarSpeedX4Mod, CarSpeedX5Mod, RewardPerLaneMod, CollisionPenaltyMod, RewardMiddleLaneMod, CleanCrossingMod
+from jaxatari.games.mods.freeway.freeway_mod_plugins import StopAllCarsMod, StaticCarsMod, SlowCarsMod, BlackCarsMod, CenterCarsOnResetMod, HallOfFameMod, BikesMod, FrogMod, NewLaneColorsMod, GreenScoreMod, ChangePlayerColorMod, ChangeCarColorMod, ChangeRoadColorMod, ChangeScoreColorMod, ChangeCarSpeedMod, FasterPlayerMod, SlowerPlayerMod, ChangeCarSpawningMod, InvertCarsMod, CarSpeedX2Mod, CarSpeedX3Mod, CarSpeedX4Mod, CarSpeedX5Mod, RewardPerLaneMod, CollisionPenaltyMod, RewardMiddleLaneMod, CleanCrossingMod, GrayscaleThemeMod
 
 class FreewayEnvMod(JaxAtariModController):
     """
@@ -14,6 +14,7 @@ class FreewayEnvMod(JaxAtariModController):
         "change_car_color": ChangeCarColorMod,
         "change_road_color": ChangeRoadColorMod,
         "change_score_color": ChangeScoreColorMod,
+        "grayscale_theme": GrayscaleThemeMod,
         #Vis. mods that were already available
         "black_cars": BlackCarsMod,
         "bikes": BikesMod,
