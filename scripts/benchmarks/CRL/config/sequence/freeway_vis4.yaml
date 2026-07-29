@@ -5,11 +5,11 @@ TASK_MODS:
   - []
   - ["change_player_color"]
   - ["change_car_color"]
-  - ["grayscale_theme"]
+  - ["change_road_color"]
   - ["bikes"]
 
-# --- More Options ---
-# change_road_color   
+# --- More Options ---   
+# grayscale_theme
 # black_cars
 # frog
 # new_lane_colors
