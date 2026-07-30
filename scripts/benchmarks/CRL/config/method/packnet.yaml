@@ -1,8 +1,9 @@
 # @package _global_
 # PackNet iterative pruning (Mallya & Lazebnik 2018)
 CL_METHOD: packnet
-PACKNET_FINETUNE_FRAC: 0.2    # fraction of each task's iteration budget spent finetuning the
-                              # kept weights after pruning (MEAL uses 0.5; the original paper
-                              # retrains briefly). Train phase gets the rest.
+PACKNET_FINETUNE_FRAC: 0.5    # fraction of each task's iteration budget spent finetuning the
+                              # kept weights after pruning (MEAL's value; 0.2 proved too short
+                              # to recover base pong after the 80% prune - R[0,0] collapsed
+                              # to ~-7 vs ~+19 with 0.5). Train phase gets the rest.
 PACKNET_FINETUNE_LR: 0.00025  # LR for the finetune phase (anneal restarts per phase); lower
                               # this if pruning recovery destabilizes earlier learning
