@@ -55,6 +55,7 @@ def train(
     cl_state=None,
     return_final_rollout: bool = False,
     crl_curve_sink: "list | None" = None,
+    crl_curve_param_fn: "Callable[[AgentParams], AgentParams] | None" = None,
 ) -> "AgentParams | tuple[AgentParams, tuple[Storage, jax.random.PRNGKey]]":
     """Run one single-task PPO training job and return the final agent params.
 
@@ -83,6 +84,10 @@ def train(
     `crl_curve_sink`, if given (and CRL_CURVE is on), collects the crl_curve
     points as dicts in memory; the CRL orchestrator shares one list across all
     tasks and persists it once at the end of the run (no per-point IO here).
+    `crl_curve_param_fn` maps the live params to the ones the curve eval should
+    score - the orchestrator passes the CL method's `eval_params` for the base
+    task, so e.g. PackNet's curve evaluates its task-0 subnetwork (matching the
+    R matrix) instead of the raw shared network. None = identity.
     """
     # Hydra nests the alg sub-config under "alg"; flatten to one UPPER_CASE dict.
     config = {k.upper(): v for k, v in config.items() if k != "alg"}
@@ -465,8 +470,9 @@ def train(
                 crl_point = ("train", float(avg_episodic_return), float("nan"))
             elif iteration % crl_eval_every == 0:
                 crl_t0 = time.time()
+                crl_params = agent_state.params if crl_curve_param_fn is None else crl_curve_param_fn(agent_state.params)
                 curve_returns, curve_completed = crl_curve_eval(
-                    agent_state.params.network_params, agent_state.params.actor_params
+                    crl_params.network_params, crl_params.actor_params
                 )
                 crl_base_return = curve_returns.mean().item()
                 # < 1.0 means some eval episodes didn't finish within the scan window

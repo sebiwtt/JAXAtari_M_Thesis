@@ -64,7 +64,10 @@ EVAL_FULL_MATRIX: False
 # Continual learning/forgetting curve for the BASE env (needs TRACK). While a mod task
 # trains, the current agent is evaluated on the base env every CRL_CURVE_INTERVAL env
 # steps (rounded down to whole PPO iterations; EVAL_EPISODES episodes, raw return) and
-# logged as crl_curve/base_return. During the base task itself no extra evals run - the
+# logged as crl_curve/base_return. The evaluated params go through the CL method's
+# eval_params for the base task (like the R matrix): identity for ft/ewc/agem, the
+# task-0 subnetwork mask for PackNet - so its curve is flat by construction rather
+# than showing raw shared-network drift. During the base task itself no extra evals run - the
 # training return (also raw, LogWrapper ignores episodic_life/clip_reward) is logged
 # under the same key, so wandb shows ONE continuous curve across all tasks.
 # crl_curve/task_idx is logged alongside (step function) to tell the per-task segments

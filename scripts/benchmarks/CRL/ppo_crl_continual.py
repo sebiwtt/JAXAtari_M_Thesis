@@ -244,6 +244,11 @@ def run_continual(config: dict) -> None:
         task_config["TOTAL_TIMESTEPS"] = task_timesteps[i]  # drives NUM_ITERATIONS + LR anneal inside train()
         if crl_curve_points is not None:
             task_config["CRL_CURVE_TASK_IDX"] = i  # segment indicator on every curve point
+            # Curve evals score the same params the R matrix would for the base task:
+            # identity for most methods, PackNet's task-0 subnetwork mask. Bound to the
+            # pre-task cl_state, which is correct throughout task i - PackNet's mid-task
+            # prune only reassigns FREE weights, never task-0-owned ones.
+            crl_curve_param_fn = lambda p, _s=cl_state, _i=i: method.eval_params(p, _s, 0, _i)
 
         task_run_name = f"{base_run_name}_task{i}"
         print(
@@ -261,7 +266,11 @@ def run_continual(config: dict) -> None:
             wandb_step_offset=step_offsets[i],
             manage_wandb=False,
             wandb_group=labels[i],
-            **({"crl_curve_sink": crl_curve_points} if crl_curve_points is not None else {}),
+            **(
+                {"crl_curve_sink": crl_curve_points, "crl_curve_param_fn": crl_curve_param_fn}
+                if crl_curve_points is not None
+                else {}
+            ),
         )
         jax.block_until_ready(carried_params)
         train_time_per_task[i] = time.perf_counter() - train_t0
