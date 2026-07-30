@@ -21,6 +21,7 @@ from jaxatari import spaces
 
 from envs import make_env
 from networks import Actor, AgentParams, Critic, MLP_Network, Network
+from ppo_eval import make_curve_eval_fn
 from tools.video_utils import generate_final_video, save_obs_debug_frame
 
 from rtpt import RTPT
@@ -168,6 +169,37 @@ def train(
     network.apply = jax.jit(network.apply)
     actor.apply = jax.jit(actor.apply)
     critic.apply = jax.jit(critic.apply)
+
+    # CRL learning/forgetting curve (config key CRL_CURVE): mid-training evals of the
+    # current params on the BASE env, logged as crl_curve/base_return on the same
+    # wandb step axis as charts-*/  - across tasks (and PackNet phases) this forms one
+    # continuous curve. On the base task itself the training return is reused instead
+    # of running evals (crl_eval_every=0). The eval closure is built+jitted once per
+    # train() call, so each curve point costs one 10k-step scan. Flag off:
+    # crl_eval_every stays None and the loop below only pays an `is not None` check.
+    crl_eval_every = None
+    if config.get("CRL_CURVE", False) and config["TRACK"]:
+        if len(config.get("TRAIN_MODS", ())) == 0:
+            crl_eval_every = 0
+        else:
+            crl_eval_every = max(1, int(config.get("CRL_CURVE_INTERVAL", 1_000_000)) // config["BATCH_SIZE"])
+            crl_eval_seed = config["EVAL_SEED"] if config.get("EVAL_SEED") is not None else config["SEED"] * 12 + 1
+            crl_curve_eval = make_curve_eval_fn(
+                make_env=partial(
+                    make_env,
+                    mods=[],
+                    pixel_based=config["PIXEL_BASED"],
+                    native_downscaling=config["NATIVE_DOWNSCALING"],
+                    smooth_image=config["SMOOTH_IMAGE"],
+                    grayscale=config["GRAYSCALE"],
+                    eval=True,
+                ),
+                env_id=config["ENV_ID"],
+                eval_episodes=config["EVAL_EPISODES"],
+                Model=(Network if config["PIXEL_BASED"] else MLP_Network, Actor, Critic),
+                seed=crl_eval_seed,
+            )
+    crl_curve_time = 0.0
 
     @jax.jit
     def get_action_and_value(
@@ -420,6 +452,20 @@ def train(
             f"{chart_section}/time": time.time() - start_time,
             f"{chart_section}/global_step": global_step,
         }
+        if crl_eval_every is not None:
+            if crl_eval_every == 0:
+                # Base task: the training return is already the base-env curve.
+                metrics["crl_curve/base_return"] = avg_episodic_return
+            elif iteration % crl_eval_every == 0:
+                crl_t0 = time.time()
+                curve_returns, curve_completed = crl_curve_eval(
+                    agent_state.params.network_params, agent_state.params.actor_params
+                )
+                metrics["crl_curve/base_return"] = curve_returns.mean().item()
+                # < 1.0 means some eval episodes didn't finish within the scan window
+                # (their return is truncated); flags curve points that may read low.
+                metrics["crl_curve/base_completed_frac"] = curve_completed.mean().item()
+                crl_curve_time += time.time() - crl_t0
         if config["TRACK"]:
             wandb.log(metrics, step=wandb_step_offset + iteration)
 
@@ -432,6 +478,8 @@ def train(
     if compile_time is not None:
         print(f"Run time after first iteration: {end_time - compile_time:.2f} seconds.")
     print(f"Total train time: {end_time - start_time:.2f} seconds / {(end_time - start_time)/60:.2f} minutes.")
+    if crl_curve_time > 0.0:
+        print(f"[crl_curve] mid-training base-env evals took {crl_curve_time:.2f} seconds (included in the totals above).")
     if config["TRACK"]:
         generate_final_video(config, network, actor, agent_state, make_env)
 

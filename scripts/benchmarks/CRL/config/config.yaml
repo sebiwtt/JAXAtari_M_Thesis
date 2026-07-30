@@ -61,6 +61,16 @@ FORGETTING_LAMBDA: 1.0
 # the number of eval() calls.
 EVAL_FULL_MATRIX: False
 
+# Continual learning/forgetting curve for the BASE env (needs TRACK). While a mod task
+# trains, the current agent is evaluated on the base env every CRL_CURVE_INTERVAL env
+# steps (rounded down to whole PPO iterations; EVAL_EPISODES episodes, raw return) and
+# logged as crl_curve/base_return. During the base task itself no extra evals run - the
+# training return (also raw, LogWrapper ignores episodic_life/clip_reward) is logged
+# under the same key, so wandb shows ONE continuous curve across all tasks.
+# Off (default): guaranteed zero overhead, training runs exactly as without the flag.
+CRL_CURVE: False
+CRL_CURVE_INTERVAL: 1000000
+
 NUM_STEPS: 128                 # rollout length per PPO iteration, per env
 
 # Per-task training budget. null = TOTAL_TIMESTEPS (from modality/) for every task.
