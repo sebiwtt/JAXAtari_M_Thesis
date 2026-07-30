@@ -227,6 +227,10 @@ def run_continual(config: dict) -> None:
     cl_state = method.init_state(rand_params)
     eval_tmp_path = f"{run_dir}/cl_eval_tmp.cleanrl_model"
 
+    # One shared list collecting every crl_curve point across all tasks (see config.yaml:
+    # CRL_CURVE); train() appends in memory only, persisted once below with the matrix.
+    crl_curve_points = [] if (config["TRACK"] and config.get("CRL_CURVE", False)) else None
+
     R = np.full((num_tasks, num_tasks), np.nan)
     ckpt_paths: list[str] = []
     carried_params = None
@@ -238,6 +242,8 @@ def run_continual(config: dict) -> None:
         task_config = dict(config)
         task_config["TRAIN_MODS"] = tuple(task_mods)
         task_config["TOTAL_TIMESTEPS"] = task_timesteps[i]  # drives NUM_ITERATIONS + LR anneal inside train()
+        if crl_curve_points is not None:
+            task_config["CRL_CURVE_TASK_IDX"] = i  # segment indicator on every curve point
 
         task_run_name = f"{base_run_name}_task{i}"
         print(
@@ -255,6 +261,7 @@ def run_continual(config: dict) -> None:
             wandb_step_offset=step_offsets[i],
             manage_wandb=False,
             wandb_group=labels[i],
+            **({"crl_curve_sink": crl_curve_points} if crl_curve_points is not None else {}),
         )
         jax.block_until_ready(carried_params)
         train_time_per_task[i] = time.perf_counter() - train_t0
@@ -368,8 +375,20 @@ def run_continual(config: dict) -> None:
         f"total={total_compute_time:.1f}s ({total_compute_time / 3600:.2f} h)"
     )
 
+    # Columnar crl_curve dump (empty when the flag is off): one continuous series over
+    # all tasks, wandb_step/env_step as shared x-axis, task_idx/task_label to color the
+    # per-task segments, source = "train" (base task) | "eval" (base-env eval mid-mod-task).
+    crl_curve_cols = {}
+    if crl_curve_points:
+        crl_curve_cols = {
+            key: [p[key] for p in crl_curve_points]
+            for key in ("wandb_step", "env_step", "task_idx", "task_label", "source", "base_return", "completed_frac")
+        }
+        print(f"[CRL] crl_curve: {len(crl_curve_points)} points collected across {num_tasks} tasks.")
+
     np.savez(
         f"{run_dir}/matrix.npz",
+        **{f"crl_curve_{key}": np.array(col) for key, col in crl_curve_cols.items()},
         R=R,
         R_rand=R_rand,
         Retention=Retention,
@@ -388,8 +407,7 @@ def run_continual(config: dict) -> None:
         total_compute_time=np.array(total_compute_time),
     )
     with open(f"{run_dir}/matrix.json", "w") as f:
-        json.dump(
-            {
+        summary = {
                 "env_id": config["ENV_ID"],
                 "exp_name": config["EXP_NAME"],
                 "cl_method": method.name,
@@ -413,10 +431,10 @@ def run_continual(config: dict) -> None:
                     "eval_total": total_eval_time,
                     "total": total_compute_time,
                 },
-            },
-            f,
-            indent=2,
-        )
+        }
+        if crl_curve_cols:
+            summary["crl_curve"] = crl_curve_cols
+        json.dump(summary, f, indent=2)
     print(f"\n[CRL] matrix saved to {run_dir}/matrix.npz and {run_dir}/matrix.json")
 
     if config["TRACK"]:

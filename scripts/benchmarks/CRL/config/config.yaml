@@ -67,6 +67,11 @@ EVAL_FULL_MATRIX: False
 # logged as crl_curve/base_return. During the base task itself no extra evals run - the
 # training return (also raw, LogWrapper ignores episodic_life/clip_reward) is logged
 # under the same key, so wandb shows ONE continuous curve across all tasks.
+# crl_curve/task_idx is logged alongside (step function) to tell the per-task segments
+# apart. The full point list (wandb_step/env_step/task_idx/task_label/source/
+# base_return/completed_frac) is kept in memory and saved ONCE at run end into
+# matrix.npz (crl_curve_* arrays) and matrix.json ("crl_curve") for offline plotting -
+# no per-point file IO during training.
 # Off (default): guaranteed zero overhead, training runs exactly as without the flag.
 CRL_CURVE: False
 CRL_CURVE_INTERVAL: 1000000

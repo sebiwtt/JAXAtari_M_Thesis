@@ -54,6 +54,7 @@ def train(
     cl_method=None,
     cl_state=None,
     return_final_rollout: bool = False,
+    crl_curve_sink: "list | None" = None,
 ) -> "AgentParams | tuple[AgentParams, tuple[Storage, jax.random.PRNGKey]]":
     """Run one single-task PPO training job and return the final agent params.
 
@@ -78,6 +79,10 @@ def train(
     `return_final_rollout=True` collects one extra on-policy rollout with the
     final params after training (GAE completed, so `storage.returns` is usable
     as a target) and returns `(params, (storage, key))`.
+
+    `crl_curve_sink`, if given (and CRL_CURVE is on), collects the crl_curve
+    points as dicts in memory; the CRL orchestrator shares one list across all
+    tasks and persists it once at the end of the run (no per-point IO here).
     """
     # Hydra nests the alg sub-config under "alg"; flatten to one UPPER_CASE dict.
     config = {k.upper(): v for k, v in config.items() if k != "alg"}
@@ -453,19 +458,38 @@ def train(
             f"{chart_section}/global_step": global_step,
         }
         if crl_eval_every is not None:
+            crl_point = None
             if crl_eval_every == 0:
                 # Base task: the training return is already the base-env curve.
                 metrics["crl_curve/base_return"] = avg_episodic_return
+                crl_point = ("train", float(avg_episodic_return), float("nan"))
             elif iteration % crl_eval_every == 0:
                 crl_t0 = time.time()
                 curve_returns, curve_completed = crl_curve_eval(
                     agent_state.params.network_params, agent_state.params.actor_params
                 )
-                metrics["crl_curve/base_return"] = curve_returns.mean().item()
+                crl_base_return = curve_returns.mean().item()
                 # < 1.0 means some eval episodes didn't finish within the scan window
-                # (their return is truncated); flags curve points that may read low.
-                metrics["crl_curve/base_completed_frac"] = curve_completed.mean().item()
+                # (their return is truncated); flags curve points that may read off.
+                crl_completed_frac = curve_completed.mean().item()
+                metrics["crl_curve/base_return"] = crl_base_return
+                metrics["crl_curve/base_completed_frac"] = crl_completed_frac
                 crl_curve_time += time.time() - crl_t0
+                crl_point = ("eval", crl_base_return, crl_completed_frac)
+            if crl_point is not None:
+                # Step-function overlay to tell the curve's task segments apart in wandb.
+                metrics["crl_curve/task_idx"] = config.get("CRL_CURVE_TASK_IDX", -1)
+                if crl_curve_sink is not None:
+                    crl_step = wandb_step_offset + iteration
+                    crl_curve_sink.append({
+                        "wandb_step": crl_step,
+                        "env_step": crl_step * config["BATCH_SIZE"],
+                        "task_idx": config.get("CRL_CURVE_TASK_IDX", -1),
+                        "task_label": wandb_group,
+                        "source": crl_point[0],
+                        "base_return": crl_point[1],
+                        "completed_frac": crl_point[2],
+                    })
         if config["TRACK"]:
             wandb.log(metrics, step=wandb_step_offset + iteration)
 
