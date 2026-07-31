@@ -304,21 +304,6 @@ class ChangeScoreColorMod(JaxAtariInternalModPlugin):
     }
 
 
-# --- Dynamics mods -----------------------------------------------------------
-class ChangeCarSpeedMod(JaxAtariInternalModPlugin):
-    """
-    Makes all cars faster by roughly halving their movement periods.
-
-    In Freeway |CAR_UPDATES[i]| is the number of frames between 1px moves for
-    lane i (smaller = faster; sign = direction). Halving the periods (min 1,
-    which is the 1px/frame cap) about doubles each lane's speed while keeping its
-    direction and the fast/slow gradient. Counterpart to the existing slow_cars.
-    """
-    constants_overrides = {
-        "CAR_UPDATES": [-3, -2, -2, -1, -1, 1, 1, 2, 2, 3]  # default: -5..-1, 1..5
-    }
-
-
 # --- Magnitude-scaled car speed (car_speed_x2 .. x5) -------------------------
 class _FasterCarsMod(JaxAtariPostStepModPlugin):
     """
@@ -394,6 +379,29 @@ class CarSpeedX4Mod(_FasterCarsMod):
 class CarSpeedX5Mod(_FasterCarsMod):
     """Car speed x5."""
     _MULTIPLIER = 5
+
+    @partial(jax.jit, static_argnums=(0,))
+    def run(self, prev_state: FreewayState, new_state: FreewayState) -> FreewayState:
+        return self._apply(prev_state, new_state)
+
+
+# --- Dynamics mods -----------------------------------------------------------
+class ChangeCarSpeedMod(_FasterCarsMod):
+    """
+    Doubles every lane's car speed (dynamics counterpart to slow_cars).
+
+    Defined here rather than with the other dynamics mods because it reuses
+    _FasterCarsMod's pixel-step amplification instead of overriding CAR_UPDATES.
+    Periods are integer frame counts floored at 1 (= 1px/frame), and the base
+    already uses 1..5, so no constants override can make all ten lanes faster
+    while keeping their speeds distinct: ties are forced, and lanes sharing a
+    speed never move relative to each other - pinning every lane to the cap
+    freezes the cars into a rigid formation with a static gap pattern. Scaling
+    the pixel step keeps all five distinct lane speeds (0.4/0.5/0.67/1.0/2.0
+    px/frame, mean 0.91 vs 0.46 base), so traffic keeps mixing as in the base
+    game. Raise _MULTIPLIER for a stronger perturbation.
+    """
+    _MULTIPLIER = 2
 
     @partial(jax.jit, static_argnums=(0,))
     def run(self, prev_state: FreewayState, new_state: FreewayState) -> FreewayState:
