@@ -1,0 +1,37 @@
+# =============================================================================
+# Campaign manifest for tools/run_campaign.py
+# =============================================================================
+#   python tools/run_campaign.py tools/campaigns/final_eval.yaml --dry-run
+#   python tools/run_campaign.py tools/campaigns/final_eval.yaml
+#
+# Every run below is one ppo_crl_continual.py process:
+#   sequences x methods x modalities x seeds
+# Jobs are queued and each GPU runs one at a time (NUM_ENVS=8192 fills a GPU).
+# Finished runs (runs/<name>/matrix.json exists) are skipped, so relaunching after
+# an interruption resumes where it left off. --force re-runs them anyway.
+# =============================================================================
+
+gpus: [0, 1, 2]
+seeds: [1, 2, 3]
+
+sequences:
+  - pong_dyn4
+  - pong_vis4
+  - pong_rew4
+  - pong_mag4
+
+methods: [ft, ewc, agem, packnet]
+modalities: [oc]
+
+# Hydra overrides applied to every run (same syntax as the command line).
+overrides:
+  CRL_CURVE: true
+  CRL_CURVE_INTERVAL: 5000000   # ~5s of GPU eval per point; 1M would eval every iteration
+
+
+# --- optional knobs ---------------------------------------------------------
+# workers_per_gpu: 1            # >1 only if several runs fit in one GPU's memory
+# python_cmd: ["uv", "run", "python"]   # default: the interpreter running this script
+# log_dir: runs/campaign_logs   # one <run-name>.log per job
+# env:                          # extra environment variables for every run
+#   XLA_PYTHON_CLIENT_MEM_FRACTION: "0.9"

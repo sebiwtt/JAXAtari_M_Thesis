@@ -197,6 +197,31 @@ uv run python scripts/benchmarks/CRL/tools/run_all_crl_seeds.py \
 uv run python .../run_all_crl_seeds.py --gpus 0 --seeds 0,1,2 -- BASE_TIMESTEP_BUDGET=1000000 TASK_TIMESTEP_BUDGET=500000
 ```
 
+For a whole campaign (the final eval: many sequences x methods x seeds at once), describe
+it in a YAML manifest instead and let `tools/run_campaign.py` expand and schedule it:
+
+```bash
+uv run python tools/run_campaign.py tools/campaigns/final_eval.yaml --dry-run   # list the runs
+uv run python tools/run_campaign.py tools/campaigns/final_eval.yaml             # launch them
+```
+
+```yaml
+gpus: [0, 1, 2]
+seeds: [1, 2, 3]
+sequences: [pong_dyn4, pong_vis4]
+methods: [ft, ewc, agem, packnet]
+modalities: [oc]
+overrides:                 # hydra overrides applied to every run
+  CRL_CURVE: true
+```
+
+Jobs are queued and each GPU pulls the next one as it frees up, each run's output goes to
+`runs/campaign_logs/<run-name>.log`, and runs that already have a `matrix.json` are skipped
+- so relaunching after a crash or a Ctrl-C resumes the rest (`--force` re-runs them).
+Failures are listed at the end with their log path and the exit code is non-zero.
+See `tools/campaigns/final_eval.yaml` for the documented schema (per-block `groups:`,
+`workers_per_gpu`, extra `env:` vars).
+
 `EVAL_SEED` is derived from `SEED` (`SEED * 12 + 1`, see `config/config.yaml`), so each
 replicate gets its own reproducible-but-decorrelated eval seed rather than sharing one
 fixed value across all of them.
