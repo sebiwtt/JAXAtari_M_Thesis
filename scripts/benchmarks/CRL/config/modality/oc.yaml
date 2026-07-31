@@ -1,6 +1,7 @@
 # @package _global_
 # Object-centric observations (MLP_Network torso)
 PIXEL_BASED: False
-TOTAL_TIMESTEPS: 100000000    # default per-task budget (TASK_TIMESTEPS can override it per task)
+BASE_TIMESTEP_BUDGET: 100000000   # training budget for the base task (TASK_MODS[0])
+TASK_TIMESTEP_BUDGET: 50000000    # budget for each mod task; a list of len(TASK_MODS) sets all tasks explicitly
 NUM_ENVS: 8192                # parallel env instances (vmapped), the dominant memory cost
 NUM_MINIBATCHES: 4096         # BATCH_SIZE (NUM_ENVS * NUM_STEPS) split into this many minibatches

@@ -64,29 +64,21 @@ EVAL_FULL_MATRIX: False
 # Continual learning/forgetting curve for the BASE env (needs TRACK). While a mod task
 # trains, the current agent is evaluated on the base env every CRL_CURVE_INTERVAL env
 # steps (rounded down to whole PPO iterations; EVAL_EPISODES episodes, raw return) and
-# logged as crl_curve/base_return. The evaluated params go through the CL method's
-# eval_params for the base task (like the R matrix): identity for ft/ewc/agem, the
-# task-0 subnetwork mask for PackNet - so its curve is flat by construction rather
-# than showing raw shared-network drift. During the base task itself no extra evals run - the
-# training return (also raw, LogWrapper ignores episodic_life/clip_reward) is logged
-# under the same key, so wandb shows ONE continuous curve across all tasks.
-# crl_curve/task_idx is logged alongside (step function) to tell the per-task segments
-# apart. The full point list (wandb_step/env_step/task_idx/task_label/source/
-# base_return/completed_frac) is kept in memory and saved ONCE at run end into
-# matrix.npz (crl_curve_* arrays) and matrix.json ("crl_curve") for offline plotting -
-# no per-point file IO during training.
+# logged as crl_curve/base_return. 
 # Off (default): guaranteed zero overhead, training runs exactly as without the flag.
 CRL_CURVE: False
 CRL_CURVE_INTERVAL: 1000000
 
 NUM_STEPS: 128                 # rollout length per PPO iteration, per env
 
-# Per-task training budget. null = TOTAL_TIMESTEPS (from modality/) for every task.
-# A scalar keeps TOTAL_TIMESTEPS for the base task and applies this to every mod task,
-# e.g. TASK_TIMESTEPS=10000000 with modality=oc -> base 100M, each mod 10M.
-# A list sets one budget per task explicitly (must match len(TASK_MODS)):
-#   TASK_TIMESTEPS: [100000000, 10000000, 10000000, 10000000, 10000000]
-TASK_TIMESTEPS: null
+# Training budgets live in modality/ (oc: base 100M / mod 50M, pixel: base 50M / mod 25M):
+#   BASE_TIMESTEP_BUDGET  - the base task, TASK_MODS[0]
+#   TASK_TIMESTEP_BUDGET  - each mod task; override either on the command line, e.g.
+#                           BASE_TIMESTEP_BUDGET=10000000 TASK_TIMESTEP_BUDGET=5000000
+# TASK_TIMESTEP_BUDGET also accepts a list of len(TASK_MODS) that sets every task
+# explicitly (BASE_TIMESTEP_BUDGET is then unused):
+#   TASK_TIMESTEP_BUDGET: [100000000, 10000000, 10000000, 10000000, 10000000]
+# Each budget is floored to whole PPO iterations (budget // BATCH_SIZE).
 
 # Standard PPO hyperparameters - shouldn't normally need changing per task/mod.
 LEARNING_RATE: 0.00025

@@ -143,8 +143,9 @@ each axis is one small file per value — adding a game is 1 sequence file, addi
 - **`config/sequence/*`** — `ENV_ID`, a short `SEQUENCE` label, and `TASK_MODS` (the ordered
   list; index 0 must be `[]`, the base task; at most one mod per task).
 - **`config/method/*`** — `CL_METHOD` and that method's hyperparameters.
-- **`config/modality/*`** — `PIXEL_BASED` plus the compute budget it implies
-  (`oc`: 8192 envs / 100M steps-per-task; `pixel`: 512 envs / 10M).
+- **`config/modality/*`** — `PIXEL_BASED` plus the compute budget it implies:
+  `BASE_TIMESTEP_BUDGET` (base task) and `TASK_TIMESTEP_BUDGET` (each mod task).
+  (`oc`: 8192 envs / 100M base / 50M per mod; `pixel`: 512 envs / 50M / 25M).
 - **`config/config.yaml`** — everything shared: wandb, eval protocol, PPO hyperparameters,
   and the `defaults:` list. `EXP_NAME` is derived as `${CL_METHOD}_${SEQUENCE}`.
 
@@ -193,7 +194,7 @@ uv run python scripts/benchmarks/CRL/tools/run_all_crl_seeds.py \
     --sequence pong_dyn4 --method ewc --modality oc
 
 # anything after `--` is forwarded verbatim to ppo_crl_continual.py:
-uv run python .../run_all_crl_seeds.py --gpus 0 --seeds 0,1,2 -- TOTAL_TIMESTEPS=1000000
+uv run python .../run_all_crl_seeds.py --gpus 0 --seeds 0,1,2 -- BASE_TIMESTEP_BUDGET=1000000 TASK_TIMESTEP_BUDGET=500000
 ```
 
 `EVAL_SEED` is derived from `SEED` (`SEED * 12 + 1`, see `config/config.yaml`), so each

@@ -81,24 +81,24 @@ def _print_vector(name: str, v: np.ndarray, labels: list[str]) -> None:
 
 
 def _resolve_task_timesteps(config: dict, num_tasks: int, batch_size: int) -> list[int]:
-    """Per-task training budget, defaulting to TOTAL_TIMESTEPS for every task.
+    """Per-task training budget: BASE_TIMESTEP_BUDGET for the base task (TASK_MODS[0])
+    and TASK_TIMESTEP_BUDGET for every mod task (defaults per modality/, e.g. oc:
+    100M base / 50M per mod).
 
-    TASK_TIMESTEPS overrides it and accepts either
-      - a scalar: the base task keeps TOTAL_TIMESTEPS, every mod task gets this
-        (e.g. TOTAL_TIMESTEPS=100_000_000, TASK_TIMESTEPS=10_000_000), or
-      - a list of length len(TASK_MODS): one explicit budget per task.
+    TASK_TIMESTEP_BUDGET also accepts a list of length len(TASK_MODS), which sets
+    every task explicitly and ignores BASE_TIMESTEP_BUDGET.
     """
-    default = int(config["TOTAL_TIMESTEPS"])
-    spec = config.get("TASK_TIMESTEPS")
+    base_budget = int(config["BASE_TIMESTEP_BUDGET"])
+    spec = config.get("TASK_TIMESTEP_BUDGET")
     if spec is None:
-        budgets = [default] * num_tasks
+        budgets = [base_budget] * num_tasks
     elif isinstance(spec, (list, tuple)):
         assert len(spec) == num_tasks, (
-            f"TASK_TIMESTEPS has {len(spec)} entries but TASK_MODS has {num_tasks} tasks"
+            f"TASK_TIMESTEP_BUDGET has {len(spec)} entries but TASK_MODS has {num_tasks} tasks"
         )
         budgets = [int(s) for s in spec]
     else:
-        budgets = [default] + [int(spec)] * (num_tasks - 1)
+        budgets = [base_budget] + [int(spec)] * (num_tasks - 1)
     for i, b in enumerate(budgets):
         # train() needs NUM_ITERATIONS >= 1 (RTPT requires max_iterations > 0).
         assert b // batch_size >= 1, (

@@ -4,7 +4,7 @@
 # Answers: "starting from an agent trained on the base task, how much extra
 # training does each single-mod task need to recover base-level performance?"
 #
-#   1. Train ONE agent on the base task (TASK_MODS[0] == []) for TOTAL_TIMESTEPS.
+#   1. Train ONE agent on the base task (TASK_MODS[0] == []) for BASE_TIMESTEP_BUDGET.
 #   2. Evaluate it on the base task -> target return R_base (true reward/episode
 #      boundaries via eval=True; NOT the clipped, episodic-life training return).
 #   3. For each other task j, resume from the *same* base checkpoint and finetune,
@@ -96,7 +96,7 @@ def run_difficulty(config: dict) -> None:
     labels = [_task_label(m) for m in task_mods_list]
 
     # Difficulty-specific knobs, all optional with sensible defaults.
-    adapt_timesteps = int(config.get("ADAPT_TIMESTEPS", config["TOTAL_TIMESTEPS"]))
+    adapt_timesteps = int(config.get("ADAPT_TIMESTEPS", config["BASE_TIMESTEP_BUDGET"]))
     eval_every_iters = int(config.get("EVAL_EVERY_ITERS", 1))
     # Absolute return the adapting agent must reach; margin lets you accept "close enough"
     # (e.g. base return minus 0.5) so a slightly noisier ceiling still counts as recovered.
@@ -104,7 +104,7 @@ def run_difficulty(config: dict) -> None:
     train_full_budget = bool(config.get("TRAIN_FULL_BUDGET", False))
 
     batch_size = int(config["NUM_ENVS"] * config["NUM_STEPS"])
-    base_iterations = int(config["TOTAL_TIMESTEPS"] // batch_size)
+    base_iterations = int(config["BASE_TIMESTEP_BUDGET"] // batch_size)
 
     group_name = f'{config["ENV_ID"]}_{config["EXP_NAME"]}_{"oc" if not config["PIXEL_BASED"] else "pixel"}_difficulty'
     base_run_name = f'{group_name}_{config["SEED"]}'
@@ -124,11 +124,12 @@ def run_difficulty(config: dict) -> None:
     Model = (Network, Actor, Critic) if config["PIXEL_BASED"] else (MLP_Network, Actor, Critic)
 
     # ------------------------------------------------------------------ #
-    # 1. Train the base agent (full TOTAL_TIMESTEPS budget) on the base task.
+    # 1. Train the base agent (full BASE_TIMESTEP_BUDGET) on the base task.
     # ------------------------------------------------------------------ #
     base_config = dict(config)
     base_config["TRAIN_MODS"] = tuple(task_mods_list[0])
-    print(f"\n=== base training: mods={task_mods_list[0]} (label={labels[0]!r}), {config['TOTAL_TIMESTEPS']:,} steps ===")
+    base_config["TOTAL_TIMESTEPS"] = config["BASE_TIMESTEP_BUDGET"]  # what this train() call runs
+    print(f"\n=== base training: mods={task_mods_list[0]} (label={labels[0]!r}), {config['BASE_TIMESTEP_BUDGET']:,} steps ===")
     base_params = train(
         base_config,
         init_params=None,

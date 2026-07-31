@@ -5,7 +5,7 @@
 #
 # Usage:
 #   python tools/run_all_crl_seeds.py --gpus 0,1,2,3 --seeds 0,1,2,3,4 --sequence pong_dyn4 --method ewc --modality oc
-#   python tools/run_all_crl_seeds.py --gpus 0 --seeds 0,1,2 -- TOTAL_TIMESTEPS=1000000
+#   python tools/run_all_crl_seeds.py --gpus 0 --seeds 0,1,2 -- BASE_TIMESTEP_BUDGET=1000000 TASK_TIMESTEP_BUDGET=500000
 # =============================================================================
 
 import argparse
