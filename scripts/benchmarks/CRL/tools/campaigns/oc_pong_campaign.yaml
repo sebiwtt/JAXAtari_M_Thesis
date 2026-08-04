@@ -11,7 +11,7 @@
 # an interruption resumes where it left off. --force re-runs them anyway.
 # =============================================================================
 
-gpus: [0, 1, 2]
+gpus: [0, 1, 2, 3]
 seeds: [1, 2, 3]
 
 sequences:
@@ -26,12 +26,5 @@ modalities: [oc]
 # Hydra overrides applied to every run (same syntax as the command line).
 overrides:
   CRL_CURVE: true
-  CRL_CURVE_INTERVAL: 5000000   # ~5s of GPU eval per point; 1M would eval every iteration
 
-
-# --- optional knobs ---------------------------------------------------------
-# workers_per_gpu: 1            # >1 only if several runs fit in one GPU's memory
-# python_cmd: ["uv", "run", "python"]   # default: the interpreter running this script
-# log_dir: runs/campaign_logs   # one <run-name>.log per job
-# env:                          # extra environment variables for every run
-#   XLA_PYTHON_CLIENT_MEM_FRACTION: "0.9"
+# This campaign will resolve to 4 * 4 * 3 = 48 runs

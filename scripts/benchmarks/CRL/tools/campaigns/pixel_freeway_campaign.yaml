@@ -1,0 +1,16 @@
+gpus: [0, 1, 2, 3]
+seeds: [1, 2, 3]
+
+sequences:
+  - freeway_dyn4
+  - freeway_vis4
+  - freeway_rew4
+  - freeway_mag4
+
+methods: [ft, ewc, agem, packnet]
+modalities: [pixel]
+
+overrides:
+  CRL_CURVE: true
+
+# This campaign will resolve to 4 * 4 * 3 = 48 runs

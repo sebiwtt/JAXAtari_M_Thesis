@@ -1,0 +1,16 @@
+gpus: [0, 1, 2, 3]
+seeds: [1, 2, 3]
+
+sequences:
+  - breakout_dyn4
+  - breakout_vis4
+  - breakout_rew4
+  - breakout_mag4
+
+methods: [ft, ewc, agem, packnet]
+modalities: [oc]
+
+overrides:
+  CRL_CURVE: true
+
+# This campaign will resolve to 4 * 4 * 3 = 48 runs
