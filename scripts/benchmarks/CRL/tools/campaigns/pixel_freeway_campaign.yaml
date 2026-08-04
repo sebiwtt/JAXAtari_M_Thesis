@@ -12,5 +12,6 @@ modalities: [pixel]
 
 overrides:
   CRL_CURVE: true
+  PROJECT: "Thesis-Experiments"
 
 # This campaign will resolve to 4 * 4 * 3 = 48 runs

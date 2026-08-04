@@ -26,5 +26,6 @@ modalities: [oc]
 # Hydra overrides applied to every run (same syntax as the command line).
 overrides:
   CRL_CURVE: true
+  PROJECT: "Thesis-Experiments"
 
 # This campaign will resolve to 4 * 4 * 3 = 48 runs
