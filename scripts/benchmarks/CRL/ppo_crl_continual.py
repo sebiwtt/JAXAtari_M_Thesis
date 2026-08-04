@@ -41,6 +41,7 @@
 
 import json
 import os
+import sys
 import time
 from functools import partial
 
@@ -51,6 +52,7 @@ import numpy as np
 import wandb
 from omegaconf import OmegaConf
 
+from tools.config_groups import rewrite_sequence_argv
 from continual import make_cl_method
 from envs import make_env
 from networks import Actor, AgentParams, Critic, MLP_Network, Network
@@ -473,5 +475,8 @@ def main(config):
     run_continual(config)
 
 
+# sequence configs live in config/sequence/<game>/; accept the flat
+# "sequence=pong_dyn4" spelling as well as hydra's "pong/pong_dyn4".
 if __name__ == "__main__":
+    rewrite_sequence_argv(sys.argv)
     main()

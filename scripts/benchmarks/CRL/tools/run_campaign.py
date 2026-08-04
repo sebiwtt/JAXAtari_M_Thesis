@@ -47,6 +47,8 @@ import yaml
 CRL_DIR = Path(__file__).resolve().parent.parent  # scripts/benchmarks/CRL
 CONFIG_DIR = CRL_DIR / "config"
 
+from config_groups import sequence_yaml_path  # sibling module in tools/
+
 _print_lock = threading.Lock()
 
 
@@ -65,7 +67,8 @@ def _fmt_override(key: str, value) -> str:
 
 
 def _group_yaml(group: str, name: str) -> dict:
-    path = CONFIG_DIR / group / f"{name}.yaml"
+    # sequence/ is nested one folder per game; "pong_dyn4" and "pong/pong_dyn4" both work.
+    path = sequence_yaml_path(name) if group == "sequence" else CONFIG_DIR / group / f"{name}.yaml"
     if not path.exists():
         raise SystemExit(f"unknown {group} '{name}': {path} does not exist")
     return yaml.safe_load(path.read_text()) or {}

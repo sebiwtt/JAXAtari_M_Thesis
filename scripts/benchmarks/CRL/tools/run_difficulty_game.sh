@@ -65,8 +65,9 @@ IFS=',' read -r -a SEQ_LIST <<< "$SEQS"
 
 # Fail before burning hours on a typo'd game/mod-family combination.
 for fam in "${SEQ_LIST[@]}"; do
-  [[ -f "$CRL_DIR/config/sequence/${GAME}_${fam}.yaml" ]] || {
-    echo "Error: no config/sequence/${GAME}_${fam}.yaml — check the game name and --seqs." >&2
+  # sequence configs are nested one folder per game (a flat file still works).
+  [[ -f "$CRL_DIR/config/sequence/${GAME}/${GAME}_${fam}.yaml" || -f "$CRL_DIR/config/sequence/${GAME}_${fam}.yaml" ]] || {
+    echo "Error: no config/sequence/${GAME}/${GAME}_${fam}.yaml — check the game name and --seqs." >&2
     exit 1
   }
 done

@@ -15,7 +15,10 @@
 
 defaults:
   - _self_
-  - sequence: pong_dyn4
+  # Sequence configs are grouped per game (config/sequence/<game>/<game>_<family>.yaml),
+  # so the defaults list needs the nested path. On the command line the flat name
+  # works too: `sequence=pong_dyn4` is routed by config_groups.rewrite_sequence_argv.
+  - sequence: pong/pong_dyn4
   - method: ft
   - modality: oc
 
