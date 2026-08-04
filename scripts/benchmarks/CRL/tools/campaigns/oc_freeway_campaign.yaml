@@ -3,9 +3,9 @@ seeds: [1, 2, 3]
 
 sequences:
   - freeway_dyn4
-  - freeway_vis4
   - freeway_rew4
   - freeway_mag4
+  #- freeway_vis4
 
 methods: [ft, ewc, agem, packnet]
 modalities: [oc]
@@ -13,4 +13,4 @@ modalities: [oc]
 overrides:
   CRL_CURVE: true
 
-# This campaign will resolve to 4 * 4 * 3 = 48 runs
+# This campaign will resolve to 4 * 3 * 3 = 36 runs

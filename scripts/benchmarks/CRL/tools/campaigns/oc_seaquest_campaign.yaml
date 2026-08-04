@@ -3,9 +3,9 @@ seeds: [1, 2, 3]
 
 sequences:
   - seaquest_dyn4
-  - seaquest_vis4
   - seaquest_rew4
   - seaquest_mag4
+  #- seaquest_vis4
 
 methods: [ft, ewc, agem, packnet]
 modalities: [oc]
@@ -13,4 +13,4 @@ modalities: [oc]
 overrides:
   CRL_CURVE: true
 
-# This campaign will resolve to 4 * 4 * 3 = 48 runs
+# This campaign will resolve to 4 * 3 * 3 = 36 runs
