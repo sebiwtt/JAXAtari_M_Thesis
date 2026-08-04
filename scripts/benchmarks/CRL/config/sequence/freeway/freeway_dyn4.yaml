@@ -3,11 +3,11 @@ ENV_ID: freeway
 SEQUENCE: dyn4
 TASK_MODS:
   - []
-  - ["change_car_speed"]
-  - ["faster_player"]
-  - ["change_car_spawning"]
   - ["invert_cars"]
-
+  - ["change_car_speed"]
+  - ["change_car_spawning"]
+  - ["faster_player"]
+  
 # --- More Options ---
 # slower_player
 # stop_all_cars

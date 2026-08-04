@@ -4,9 +4,9 @@ SEQUENCE: mag4
 TASK_MODS:
   - []
   - ["oxygen_drain_x2"]   
-  - ["oxygen_drain_x3"]
   - ["oxygen_drain_x4"]
-  - ["oxygen_drain_x5"]
+  - ["oxygen_drain_x6"]
+  - ["oxygen_drain_x8"]
 
 # --- More Options (alternate magnitude axis) ---
 # oxygen_drain_x2 / _x3 / _x4 / _x5   # tank empties 2x/3x/4x/5x faster

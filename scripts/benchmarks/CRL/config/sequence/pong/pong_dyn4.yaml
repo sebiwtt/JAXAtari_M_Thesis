@@ -5,10 +5,10 @@ ENV_ID: pong
 SEQUENCE: dyn4
 TASK_MODS:
   - []
-  - ["lazy_enemy"]
+  - ["ball_gravity"]
   - ["fast_paddle"]
   - ["random_serve"]
-  - ["ball_gravity"]
+  - ["lazy_enemy"]
 
 # --- More Options ---
 # slow_ball

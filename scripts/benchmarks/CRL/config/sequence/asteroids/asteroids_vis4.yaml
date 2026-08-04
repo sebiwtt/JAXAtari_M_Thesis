@@ -3,9 +3,9 @@ ENV_ID: asteroids
 SEQUENCE: vis4
 TASK_MODS:
   - []
+  - ["change_background_color"]
   - ["change_ship_color"]
   - ["change_asteroid_color"]
-  - ["change_background_color"]
   - ["no_flicker"]
 
 # --- More Options ---

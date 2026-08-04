@@ -3,11 +3,10 @@ ENV_ID: kangaroo
 SEQUENCE: vis4
 TASK_MODS:
   - []
-  - ["chickens"]    
-  - ["change_monkey_color"]      
   - ["change_background_color"]  
-  - ["grayscale_theme"]      
-  
+  - ["grayscale_theme"]   
+  - ["change_monkey_color"]       
+  - ["chickens"]    
 
 # --- More Options ---
 # change_score_color    

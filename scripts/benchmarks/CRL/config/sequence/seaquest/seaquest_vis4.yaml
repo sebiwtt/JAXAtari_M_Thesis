@@ -3,10 +3,10 @@ ENV_ID: seaquest
 SEQUENCE: vis4
 TASK_MODS:
   - []
-  - ["change_sub_color"]    
-  - ["random_color_enemies"]   
   - ["change_water_color"]  
   - ["mines"]   
+  - ["random_color_enemies"]   
+  - ["change_sub_color"]    
 
 # --- More Options ---
 # grayscale_theme        

@@ -4,9 +4,9 @@ SEQUENCE: vis4
 TASK_MODS:
   - []
   - ["change_player_color"]
+  - ["bikes"]
   - ["change_car_color"]
   - ["change_road_color"]
-  - ["bikes"]
 
 # --- More Options ---   
 # grayscale_theme

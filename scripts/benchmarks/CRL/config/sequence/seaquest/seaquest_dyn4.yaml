@@ -3,8 +3,8 @@ ENV_ID: seaquest
 SEQUENCE: dyn4
 TASK_MODS:
   - []
-  - ["faster_enemies"]     # sharks/subs 3x speed (bumped from 2x for a bigger gap)
   - ["slower_sub"]
+  - ["faster_enemies"]     # sharks/subs 3x speed (bumped from 2x for a bigger gap)
   - ["faster_sub"]         # player sub 3x speed (bumped from 2x)
   - ["unlimited_oxygen"]   # oxygen mechanic removed (already a maximal change)
 

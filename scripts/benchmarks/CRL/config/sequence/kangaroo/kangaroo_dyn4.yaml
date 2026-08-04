@@ -3,10 +3,10 @@ ENV_ID: kangaroo
 SEQUENCE: dyn4
 TASK_MODS:
   - []
-  - ["change_kangaroo_speed"]
   - ["coconut_speed_x2"]   
   - ["no_monkey"]   
   - ["jump_gravity"]
+  - ["change_kangaroo_speed"]
 
 # --- More Options ---
 # no_punch/crouch/jump

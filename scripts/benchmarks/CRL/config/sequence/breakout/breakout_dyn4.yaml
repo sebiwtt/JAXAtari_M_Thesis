@@ -3,10 +3,10 @@ ENV_ID: breakout
 SEQUENCE: dyn4
 TASK_MODS:
   - []
-  - ["faster_ball"] 
   - ["faster_paddle"] 
-  - ["random_serve"] 
   - ["ball_drift"]
+  - ["random_serve"] 
+  - ["faster_ball"] 
 
 # --- More Options ---
 # slower_ball

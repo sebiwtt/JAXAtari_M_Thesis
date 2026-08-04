@@ -6,9 +6,10 @@ SEQUENCE: vis4
 TASK_MODS:
   - []
   - ["change_ball_color"]
+  - ["change_background_color"]
   - ["change_score_color"]
   - ["swap_paddle_colors"]
-  - ["change_background_color"]
+
 
 # --- More Options ---
 # grayscale_theme
