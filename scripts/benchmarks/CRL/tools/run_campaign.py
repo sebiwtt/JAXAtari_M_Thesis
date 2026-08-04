@@ -10,26 +10,7 @@
 # workers (default: one run at a time per GPU, since NUM_ENVS=8192 fills a GPU).
 #
 #   python tools/run_campaign.py tools/campaigns/final_eval.yaml
-#   python tools/run_campaign.py tools/campaigns/final_eval.yaml --dry-run
-#   python tools/run_campaign.py tools/campaigns/final_eval.yaml --gpus 2,3
 #
-# Manifest (see tools/campaigns/final_eval.yaml for a documented example):
-#
-#     gpus: [0, 1, 2]
-#     seeds: [1, 2, 3]
-#     sequences: [pong_dyn4, pong_vis4]
-#     methods: [ft, ewc, agem, packnet]     # default: [ft]
-#     modalities: [oc]                      # default: [oc]
-#     overrides:                            # hydra overrides for every run
-#       CRL_CURVE: true
-#     groups:                               # optional: extra blocks, each key
-#       - sequences: [seaquest_dyn4]        # overriding the top-level default
-#         seeds: [1]
-#
-# Each run's stdout/stderr goes to its own log file (parallel runs would otherwise
-# interleave), progress is printed as jobs start/finish, and runs whose
-# runs/<name>/matrix.json already exists are skipped so an interrupted campaign can
-# simply be relaunched. Exits non-zero if any run failed.
 # =============================================================================
 
 import argparse
@@ -108,10 +89,6 @@ def expand_jobs(manifest: dict) -> list[dict]:
                 continue
             seen.add(key)
             name = _run_dir_name(sequence, method, modality, int(seed), overrides)
-            # An EXP_NAME override may contain a hydra interpolation (e.g.
-            # "${CL_METHOD}_x") that only resolves inside the run itself, so the run
-            # dir can't be predicted here: fall back to a descriptive log name and
-            # let the job run rather than skipping it on a bogus path.
             resolvable = "${" not in name
             jobs.append({
                 "name": name if resolvable else f"{sequence}_{method}_{modality}_seed{seed}",

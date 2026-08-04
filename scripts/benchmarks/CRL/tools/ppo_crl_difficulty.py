@@ -1,25 +1,6 @@
 # =============================================================================
 # Task-difficulty ranking harness for the JAXtari PPO trainer
 # =============================================================================
-# Answers: "starting from an agent trained on the base task, how much extra
-# training does each single-mod task need to recover base-level performance?"
-#
-#   1. Train ONE agent on the base task (TASK_MODS[0] == []) for BASE_TIMESTEP_BUDGET.
-#   2. Evaluate it on the base task -> target return R_base (true reward/episode
-#      boundaries via eval=True; NOT the clipped, episodic-life training return).
-#   3. For each other task j, resume from the *same* base checkpoint and finetune,
-#      evaluating on task j every EVAL_EVERY_ITERS iterations. Record the global_step
-#      at which the eval return first reaches the target; early-stop there (unless
-#      TRAIN_FULL_BUDGET). Each task branches independently from base (not chained).
-#   4. Rank tasks by steps-to-target: fewer steps = easier to adapt to.
-#
-# The target is a fixed return level, so "steps to reach it" is directly
-# comparable across tasks. A task whose ceiling sits below the target simply never
-# crosses and is reported as "not reached" (inf), which is itself a difficulty signal.
-#
-# Orchestration only; PPO lives in `ppo_trainer.train` (via its iteration_callback
-# hook), evaluation in `ppo_eval.evaluate`.
-# =============================================================================
 
 import json
 import os

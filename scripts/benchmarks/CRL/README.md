@@ -122,7 +122,6 @@ CRL/
 │   └── modality/            #   observation pipeline + budget    (oc, pixel)
 │
 ├── tools/                   # auxiliary scripts (not part of the core pipeline)
-│   ├── run_all_crl_seeds.py #   launch N seeds across GPUs
 │   ├── visualize_matrix.py  #   render a run's retention/forgetting matrix to PNG
 │   ├── ppo_crl_difficulty.py#   rank tasks by adaptation difficulty (separate study)
 │   ├── run_difficulty_game.sh#  all 4 mod families of one game, sequentially, on one GPU
@@ -186,16 +185,6 @@ grouped per task; A-GEM logs `agem_projected`, EWC logs `cl_penalty`).
 Report **mean ± std over seeds**, not single-seed point estimates — RL amplifies tiny
 numeric differences (hardware, jax version) into divergent trajectories, so single runs are
 noisy. The launcher runs one full sweep per seed, one process per GPU worker:
-
-```bash
-# from the repo root
-uv run python scripts/benchmarks/CRL/tools/run_all_crl_seeds.py \
-    --gpus 0,1,2,3 --seeds 0,1,2,3,4 \
-    --sequence pong_dyn4 --method ewc --modality oc
-
-# anything after `--` is forwarded verbatim to ppo_crl_continual.py:
-uv run python .../run_all_crl_seeds.py --gpus 0 --seeds 0,1,2 -- BASE_TIMESTEP_BUDGET=1000000 TASK_TIMESTEP_BUDGET=500000
-```
 
 For a whole campaign (the final eval: many sequences x methods x seeds at once), describe
 it in a YAML manifest instead and let `tools/run_campaign.py` expand and schedule it:

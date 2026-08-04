@@ -1,19 +1,6 @@
 # =============================================================================
 # Sequence config-group routing
 # =============================================================================
-# config/sequence/ is organized one folder per game, with the file names left
-# fully qualified:
-#
-#     config/sequence/pong/pong_dyn4.yaml
-#
-# so hydra's own name for that option is "pong/pong_dyn4". Everything here -
-# scripts, campaign manifests, the README - spells sequences the flat way
-# ("sequence=pong_dyn4"), so `resolve_sequence` maps the flat name onto the
-# nested one by looking up the file, and `rewrite_sequence_argv` applies that to
-# sys.argv just before a hydra entry point parses it. Nothing else has to change:
-# both spellings work everywhere, and a flat config/sequence/<name>.yaml still
-# takes precedence if one exists.
-# =============================================================================
 
 from pathlib import Path
 
