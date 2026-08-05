@@ -26,6 +26,12 @@ defaults:
 NAME_INITIALS: "SW"
 SEED: 0
 
+# Which agent runs the benchmark (see agents/): "ppo" is the reference
+# PPO + CL-method stack (method/ then selects ft/ewc/agem/packnet); "random" is
+# the no-learning example. Registered custom agents are selectable by name;
+# framework.run_benchmark(agent=...) can also bypass this key entirely.
+AGENT: ppo
+
 # wandb params
 ENTITY: "sebastian-wette-tu-darmstadt"
 PROJECT: "Thesis-Test"

@@ -28,6 +28,13 @@ through the same orchestrator and are directly comparable:
 The methods are ported from [MEAL](https://github.com/TTomilin/MEAL) (which implements them
 for IPPO) and adapted to this single-agent, single-head PPO trainer.
 
+The benchmark itself is **agent-agnostic**: the PPO stack above is just the built-in
+reference agent (`AGENT=ppo`). Any JAX training algorithm — PQN, DQN, world models, … —
+can be plugged in by implementing three functions (`init_state` / `train_task` / `policy`)
+against the [`ContinualAgent`](framework/interface.py) contract and started with a single
+`run_benchmark(...)` call; the harness keeps tasks, budgets, evaluation, and metrics fixed
+so results stay comparable. See **[FRAMEWORK.md](FRAMEWORK.md)**.
+
 ---
 
 ## Quickstart
@@ -104,13 +111,23 @@ but aren't used by `Drop`/`Forgetting` (which only ever look at `j < i`).
 
 ```
 CRL/
-├── ppo_crl_continual.py     # MAIN entry point: the continual orchestrator
+├── ppo_crl_continual.py     # CLI entry point (thin hydra wrapper over framework/runner.py)
+│
+├── framework/               # the agent-agnostic benchmark harness (see FRAMEWORK.md)
+│   ├── interface.py         #   the contract: ContinualAgent, TaskSpec, TrainContext
+│   ├── evaluation.py        #   evaluate_policy: the official eval rollout
+│   └── runner.py            #   task construction, benchmark loop, metrics, run_benchmark()
+│
+├── agents/                  # pluggable agents (add your own here)
+│   ├── ppo_crl.py           #   reference agent: PPO + CL method   (AGENT=ppo)
+│   └── random_policy.py     #   minimal example, no learning       (AGENT=random)
+│
 ├── ppo_trainer.py           # single-task PPO (CL-agnostic; hooks in via cl_method/cl_state)
-├── ppo_eval.py              # deterministic evaluation of a saved checkpoint
+├── ppo_eval.py              # checkpoint-based evaluation (delegates to framework/evaluation.py)
 ├── networks.py              # torsos (CNN / MLP) + Actor/Critic heads + AgentParams
 ├── envs.py                  # make_env: the wrapped JAXtari env factory
 │
-├── continual/               # continual-learning methods (one file each)
+├── continual/               # continual-learning methods for the PPO agent (one file each)
 │   ├── base.py              #   CLMethod interface + default (finetuning) behavior
 │   ├── ft.py  ewc.py  agem.py  packnet.py
 │   └── __init__.py          #   make_cl_method() registry
