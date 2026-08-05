@@ -14,8 +14,8 @@ import flax
 import jax
 import jax.numpy as jnp
 
-from continual.base import CLMethod
-from networks import action_dim_from_params, build_models
+from agents.ppo.continual.base import CLMethod
+from agents.ppo.networks import action_dim_from_params, build_models
 
 
 @flax.struct.dataclass

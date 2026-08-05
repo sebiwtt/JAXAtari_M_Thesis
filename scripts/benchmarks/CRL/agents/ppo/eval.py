@@ -62,7 +62,7 @@ def make_curve_eval_fn(
     Model: nn.Module,
     seed=1,
 ):
-    """Reusable in-memory eval for the mid-training CRL curve (ppo_trainer).
+    """Reusable in-memory eval for the mid-training CRL curve (agents/ppo/trainer.py).
 
     Same rollout/first-episode-masking semantics as `evaluate`, but takes params
     directly instead of a checkpoint file and returns one jitted

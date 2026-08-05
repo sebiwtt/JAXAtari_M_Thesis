@@ -1,4 +1,4 @@
-"""Final-video capture and wandb logging, kept out of ppo_trainer.py since it's
+"""Final-video capture and wandb logging, kept out of agents/ppo/trainer.py since it's
 observability, not part of the PPO algorithm itself."""
 from pathlib import Path
 from typing import Callable

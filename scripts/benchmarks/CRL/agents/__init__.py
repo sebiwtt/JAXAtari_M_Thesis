@@ -25,5 +25,5 @@ def make_agent(name: str, config: dict, tasks) -> ContinualAgent:
 
 
 # Built-in agents (importing the module registers the class).
-from agents.ppo_crl import PPOCRLAgent  # noqa: E402,F401
+from agents.ppo import PPOCRLAgent  # noqa: E402,F401
 from agents.random_policy import RandomPolicyAgent  # noqa: E402,F401

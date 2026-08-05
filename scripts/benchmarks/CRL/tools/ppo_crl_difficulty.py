@@ -19,10 +19,10 @@ import wandb
 from omegaconf import OmegaConf
 
 from tools.config_groups import rewrite_sequence_argv
-from ppo_eval import evaluate
-from envs import make_env
-from networks import Actor, AgentParams, Critic, MLP_Network, Network
-from ppo_trainer import train
+from agents.ppo.eval import evaluate
+from agents.ppo.networks import Actor, AgentParams, Critic, MLP_Network, Network
+from agents.ppo.trainer import train
+from framework.envs import make_env
 
 
 def _task_label(mods) -> str:

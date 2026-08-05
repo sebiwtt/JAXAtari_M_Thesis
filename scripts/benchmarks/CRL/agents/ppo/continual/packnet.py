@@ -25,7 +25,7 @@ import flax
 import jax
 import jax.numpy as jnp
 
-from continual.base import CLMethod
+from agents.ppo.continual.base import CLMethod
 
 PACKNET_FREE = -1
 PACKNET_SHARED = -2

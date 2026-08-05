@@ -4,7 +4,7 @@
 # Trains ONE agent sequentially over ordered single-mod tasks and fills the
 # retention/forgetting matrix. The agent is anything implementing
 # framework.interface.ContinualAgent; the reference PPO(+ft/ewc/agem/packnet)
-# lives in agents/ppo_crl.py. The runner owns what must be identical across
+# lives in agents/ppo/. The runner owns what must be identical across
 # submissions: task construction, budgets, the eval protocol, the metrics, and
 # the output files.
 #
@@ -93,7 +93,7 @@ def _resolve_task_budgets(config: dict, num_tasks: int) -> "list[int]":
 def build_tasks(config: dict) -> "list[TaskSpec]":
     """The official task sequence for a config: one TaskSpec per TASK_MODS entry,
     with bound train/eval env factories so agents never touch env wiring."""
-    from envs import make_env  # local import: envs pulls in jaxatari
+    from framework.envs import make_env  # local import: envs pulls in jaxatari
 
     task_mods_list = [list(m) for m in config["TASK_MODS"]]
     assert len(task_mods_list) > 0, "TASK_MODS must contain at least one task"

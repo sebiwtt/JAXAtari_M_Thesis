@@ -75,7 +75,7 @@ class MyDQN(ContinualAgent):
 
 For a full-featured example — CL state threaded across tasks, per-task eval
 policies (PackNet subnetworks), wandb offsets, the mid-training CRL curve —
-read the reference implementation [agents/ppo_crl.py](agents/ppo_crl.py).
+read the reference implementation [agents/ppo/agent.py](agents/ppo/agent.py).
 
 ## Running it
 
@@ -130,15 +130,21 @@ are enforced by convention — but they are what makes results comparable:
 framework/            the harness (don't change in a submission)
 ├── interface.py        the contract: ContinualAgent, TaskSpec, TrainContext
 ├── evaluation.py       evaluate_policy: the official rollout protocol
-└── runner.py           task construction, benchmark loop, metrics, outputs
+├── runner.py           task construction, benchmark loop, metrics, outputs
+└── envs.py             make_env: the wrapped JAXtari env factory
 
 agents/               submissions (add yours here)
 ├── __init__.py         @register_agent registry
-├── ppo_crl.py          reference: PPO + ft/ewc/agem/packnet   (AGENT=ppo)
-└── random_policy.py    minimal example                        (AGENT=random)
+├── random_policy.py    minimal example                        (AGENT=random)
+└── ppo/                reference: PPO + ft/ewc/agem/packnet   (AGENT=ppo)
+    ├── agent.py          the ContinualAgent adapter
+    ├── trainer.py        the jitted single-task PPO loop
+    ├── networks.py       CNN/MLP torsos + Actor/Critic heads
+    ├── eval.py           checkpoint-based eval + curve eval
+    └── continual/        CLMethod base + one file per method
 ```
 
-The pre-framework modules (`ppo_trainer.py`, `continual/`, `networks.py`,
-`envs.py`, `ppo_eval.py`) are unchanged internals of the reference PPO agent;
-the refactor is verified bit-exact against the pre-framework orchestrator for
-ft, ewc, and packnet (matrices and checkpoint params).
+The reference PPO agent's internals under `agents/ppo/` are the pre-framework
+modules, moved but unchanged; the refactor is verified bit-exact against the
+pre-framework orchestrator for ft, ewc, and packnet (matrices and checkpoint
+params).

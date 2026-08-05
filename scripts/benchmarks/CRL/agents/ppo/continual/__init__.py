@@ -2,11 +2,11 @@
 # Continual-RL method registry
 # =============================================================================
 
-from continual.agem import AGEM
-from continual.base import CLMethod
-from continual.ewc import EWC
-from continual.ft import FT
-from continual.packnet import PackNet
+from agents.ppo.continual.agem import AGEM
+from agents.ppo.continual.base import CLMethod
+from agents.ppo.continual.ewc import EWC
+from agents.ppo.continual.ft import FT
+from agents.ppo.continual.packnet import PackNet
 
 _REGISTRY = {method.name: method for method in (FT, EWC, AGEM, PackNet)}
 

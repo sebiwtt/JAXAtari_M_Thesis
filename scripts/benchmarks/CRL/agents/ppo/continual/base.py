@@ -10,7 +10,7 @@
 #         R[i, j] <- evaluate(method.eval_params(params, cl_state, j, i))   for each j
 #     method.save_artifacts(cl_state, run_dir)
 #
-# `ppo_trainer.train` stays CL-agnostic: it calls exactly two jit-safe hooks,
+# `agents.ppo.trainer.train` stays CL-agnostic: it calls exactly two jit-safe hooks,
 # `loss_penalty` (added to the PPO loss) and `transform_grads` (on the raw
 # grads before Adam). The method object itself is a trace-time constant;
 # `cl_state` - the method's device data (Fisher, memory, masks, ...) - is
@@ -87,7 +87,7 @@ class CLMethod:
             params = result
         return params, cl_state
 
-    # ---- jit-safe hooks, called inside ppo_trainer.train ---------------------
+    # ---- jit-safe hooks, called inside agents.ppo.trainer.train --------------
 
     def loss_penalty(self, params, cl_state) -> jnp.ndarray:
         """Scalar added to the PPO loss (traced; `cl_state is None` may be branched

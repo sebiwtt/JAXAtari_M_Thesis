@@ -3,9 +3,9 @@
 # =============================================================================
 # The benchmark's built-in submission - a thin ContinualAgent adapter around
 # the pre-framework stack, kept behaviorally identical to it:
-#   * ppo_trainer.train      - the jitted single-task PPO loop
-#   * continual/ (CLMethod)  - ft / ewc / agem / packnet, selected by CL_METHOD
-#   * networks.py            - CNN/MLP torso + Actor/Critic heads
+#   * agents/ppo/trainer.py   - the jitted single-task PPO loop
+#   * agents/ppo/continual/   - CLMethod: ft / ewc / agem / packnet, selected by CL_METHOD
+#   * agents/ppo/networks.py  - CNN/MLP torso + Actor/Critic heads
 # Use it as the template for how a full-featured agent maps onto the contract:
 # state = (params, cl_state), policy() = the CL method's eval-params substitution
 # (identity for most methods, subnetwork masking for PackNet).
@@ -19,11 +19,11 @@ import jax.numpy as jnp
 import numpy as np
 
 from agents import register_agent
-from continual import make_cl_method
-from envs import make_env
+from agents.ppo.continual import make_cl_method
+from agents.ppo.networks import Actor, AgentParams, Critic, MLP_Network, Network, action_dim_from_params, build_models
+from agents.ppo.trainer import train
+from framework.envs import make_env
 from framework.interface import ContinualAgent, TaskSpec, TrainContext
-from networks import Actor, AgentParams, Critic, MLP_Network, Network, action_dim_from_params, build_models
-from ppo_trainer import train
 
 
 class PPOState(NamedTuple):
@@ -140,7 +140,7 @@ class PPOCRLAgent(ContinualAgent):
 
     def save_checkpoint(self, state: PPOState, run_dir: str, name: str) -> str:
         """cleanrl format ([config, [network, actor, critic]]), readable by
-        ppo_eval.evaluate and the video/visualization tools."""
+        agents.ppo.eval.evaluate and the video/visualization tools."""
         path = f"{run_dir}/{name}.cleanrl_model"
         saved_config = self._last_task_config if self._last_task_config is not None else self.config
         with open(path, "wb") as f:

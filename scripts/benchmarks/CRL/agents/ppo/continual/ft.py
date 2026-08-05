@@ -2,7 +2,7 @@
 # FT - naive finetuning (the no-mitigation baseline)
 # =============================================================================
 
-from continual.base import CLMethod
+from agents.ppo.continual.base import CLMethod
 
 
 class FT(CLMethod):

@@ -19,9 +19,9 @@ import wandb
 from flax.training.train_state import TrainState
 from jaxatari import spaces
 
-from envs import make_env
-from networks import Actor, AgentParams, Critic, MLP_Network, Network
-from ppo_eval import make_curve_eval_fn
+from agents.ppo.eval import make_curve_eval_fn
+from agents.ppo.networks import Actor, AgentParams, Critic, MLP_Network, Network
+from framework.envs import make_env
 from tools.video_utils import generate_final_video, save_obs_debug_frame
 
 from rtpt import RTPT

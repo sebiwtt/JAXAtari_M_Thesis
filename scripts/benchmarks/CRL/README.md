@@ -12,9 +12,6 @@ Shipped: **6 games** (asteroids, breakout, freeway, kangaroo, pong, seaquest) ×
 families** (`dyn4` dynamics, `vis4` visuals, `rew4` reward, `mag4` one parameter scaled
 ×2..×5) = 24 sequences of 5 tasks each.
 
-For a full implementation-level write-up (wrappers, metric derivations, method deviations
-from MEAL, caveats), see [`METHODOLOGY.md`](METHODOLOGY.md).
-
 Four continual-learning methods are implemented behind a common interface, so they all run
 through the same orchestrator and are directly comparable:
 
@@ -116,33 +113,30 @@ CRL/
 ├── framework/               # the agent-agnostic benchmark harness (see FRAMEWORK.md)
 │   ├── interface.py         #   the contract: ContinualAgent, TaskSpec, TrainContext
 │   ├── evaluation.py        #   evaluate_policy: the official eval rollout
-│   └── runner.py            #   task construction, benchmark loop, metrics, run_benchmark()
+│   ├── runner.py            #   task construction, benchmark loop, metrics, run_benchmark()
+│   └── envs.py              #   make_env: the wrapped JAXtari env factory
 │
 ├── agents/                  # pluggable agents (add your own here)
-│   ├── ppo_crl.py           #   reference agent: PPO + CL method   (AGENT=ppo)
-│   └── random_policy.py     #   minimal example, no learning       (AGENT=random)
-│
-├── ppo_trainer.py           # single-task PPO (CL-agnostic; hooks in via cl_method/cl_state)
-├── ppo_eval.py              # checkpoint-based evaluation (delegates to framework/evaluation.py)
-├── networks.py              # torsos (CNN / MLP) + Actor/Critic heads + AgentParams
-├── envs.py                  # make_env: the wrapped JAXtari env factory
-│
-├── continual/               # continual-learning methods for the PPO agent (one file each)
-│   ├── base.py              #   CLMethod interface + default (finetuning) behavior
-│   ├── ft.py  ewc.py  agem.py  packnet.py
-│   └── __init__.py          #   make_cl_method() registry
+│   ├── random_policy.py     #   minimal example, no learning       (AGENT=random)
+│   └── ppo/                 #   reference agent: PPO + CL method   (AGENT=ppo)
+│       ├── agent.py         #     the ContinualAgent adapter
+│       ├── trainer.py       #     single-task PPO (CL-agnostic; hooks in via cl_method/cl_state)
+│       ├── networks.py      #     torsos (CNN / MLP) + Actor/Critic heads + AgentParams
+│       ├── eval.py          #     checkpoint-based eval (delegates to framework/evaluation.py)
+│       └── continual/       #     CL methods (one file each): CLMethod base + ft/ewc/agem/packnet
 │
 ├── config/                  # Hydra config, composed from three groups
-│   ├── config.yaml          #   shared defaults + the `defaults:` list
+│   ├── config.yaml          #   shared defaults + the `defaults:` list (incl. AGENT)
 │   ├── sequence/            #   which game + ordered task mods  (24: 6 games × dyn4/vis4/rew4/mag4)
 │   ├── method/              #   which CL method + its hyperparams (ft, ewc, agem, packnet)
 │   └── modality/            #   observation pipeline + budget    (oc, pixel)
 │
 ├── tools/                   # auxiliary scripts (not part of the core pipeline)
-│   ├── visualize_matrix.py  #   render a run's retention/forgetting matrix to PNG
+│   ├── run_campaign.py      #   expand a YAML manifest into runs, schedule over GPUs
 │   ├── ppo_crl_difficulty.py#   rank tasks by adaptation difficulty (separate study)
-│   ├── run_difficulty_game.sh#  all 4 mod families of one game, sequentially, on one GPU
 │   └── video_utils.py       #   final-rollout video / obs-frame capture
+│
+├── visualization/           # seed-averaged tables + figures (see visualization/README.md)
 │
 └── runs/                    # outputs (git-ignored) — one dir per run
 ```
@@ -236,9 +230,13 @@ fixed value across all of them.
 
 ## Visualization
 
+The `visualization/` suite turns finished runs into seed-averaged tables and figures
+(aggregate first, then plot) — see [visualization/README.md](visualization/README.md):
+
 ```bash
-uv run python tools/visualize_matrix.py runs/pong_ewc_dyn4_oc_0            # -> <run>/visualization.png
-uv run python tools/visualize_matrix.py runs/pong_ewc_dyn4_oc_0 --out fig.png --show
+uv run python visualization/aggregate_seeds.py       # runs/<group>_<seed>/ -> runs/aggregated/<group>/
+uv run python visualization/plot_matrix.py           # retention/forgetting dashboards
+uv run python visualization/make_tables.py           # markdown / LaTeX / CSV tables
 ```
 
 ---
@@ -252,20 +250,6 @@ tasks by adaptation cost. It shares the same config system:
 ```bash
 uv run python tools/ppo_crl_difficulty.py sequence=pong_dyn4 modality=oc
 ```
-
-To get the difficulty picture for one game — the `dyn4` and `vis4` mod families — use the
-wrapper, which pins everything to a single GPU and runs the sequences strictly one after
-the other (one process each, so VRAM is released in between):
-
-```bash
-./tools/run_difficulty_game.sh 2 pong            # GPU 2, dyn4 + vis4
-./tools/run_difficulty_game.sh 0 seaquest --modality pixel --seed 1
-nohup ./tools/run_difficulty_game.sh 2 pong > sweep_pong.log 2>&1 &
-```
-
-It warns if the requested GPU is already busy, skips sequences whose `runs/` dir exists
-(unless `--force`), logs each sequence to `runs/difficulty_logs/`, and prints a summary.
-`--help` lists all options; anything after `--` is forwarded to `ppo_crl_difficulty.py`.
 
 `rew4` and `mag4` are not in the default list. `rew4` in particular is unsound for this
 study as written: its mods replace the reward function, so the probe's return is measured

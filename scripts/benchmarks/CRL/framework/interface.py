@@ -18,7 +18,7 @@
 #                            overrides=["SEED=1"])
 #
 # See agents/random_policy.py for the smallest complete working example and
-# agents/ppo_crl.py for the full-featured reference implementation (PPO with
+# agents/ppo/ for the full-featured reference implementation (PPO with
 # ft/ewc/agem/packnet). FRAMEWORK.md walks through the whole thing.
 #
 # Ground rules (enforced socially, not by code -- the harness cannot meter the
@@ -49,7 +49,7 @@ class TaskSpec:
     env_id: str                    # the jaxatari game
     # (seed, num_envs) -> wrapped TRAINING env (episodic life, clipped reward).
     # The returned env exposes reset/step for vmapping, plus
-    # observation_space()/action_space(); see envs.make_env for the wrapper stack.
+    # observation_space()/action_space(); see framework/envs.py for the wrapper stack.
     make_train_env: Callable[[int, int], Any]
     # (seed,) -> single wrapped EVAL env (true episode boundaries, raw reward).
     # Exposed for the agent's own mid-training probes; official numbers come

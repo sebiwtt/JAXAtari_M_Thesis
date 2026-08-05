@@ -2,8 +2,7 @@
 
 Tools for turning the per-run output of `ppo_crl_continual.py` into thesis-ready
 tables and figures. Everything here works on **seed-averaged groups**, not single
-runs — the single-run equivalents live in `../tools/` (`visualize_matrix.py`,
-`plot_crl_curve.py`) and are still the right thing for inspecting one run.
+runs.
 
 All commands below are run from `scripts/benchmarks/CRL/`.
 

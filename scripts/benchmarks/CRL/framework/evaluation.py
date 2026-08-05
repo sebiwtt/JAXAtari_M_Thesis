@@ -3,8 +3,8 @@
 # =============================================================================
 # This is the ONLY place official R / R_rand numbers come from. It takes a
 # jit-safe act function instead of a checkpoint + fixed network classes, so any
-# ContinualAgent can be evaluated. ppo_eval.evaluate (checkpoint-based, used by
-# standalone tools) delegates here.
+# ContinualAgent can be evaluated. agents.ppo.eval.evaluate (checkpoint-based,
+# used by standalone tools) delegates here.
 #
 # The PRNG-split sequence before the episode reset keys reproduces the
 # pre-framework ppo_eval.evaluate byte-for-byte (it consumed key splits for a
@@ -30,7 +30,7 @@ def evaluate_policy(
 
     `act(obs, key) -> (action, key)` with obs shaped (1, *obs_shape) and action
     shaped (1,); it is vmapped over episodes and must be jit-traceable.
-    `env` is a single (unvmapped) eval-wrapped env from envs.make_env.
+    `env` is a single (unvmapped) eval-wrapped env from framework.envs.make_env.
 
     Returns (episodic_returns, env_states_until_done, completed):
       episodic_returns  - (eval_episodes,) first-episode return per stream, from
