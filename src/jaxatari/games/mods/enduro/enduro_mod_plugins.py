@@ -214,3 +214,37 @@ class NoOpponentsMod(JaxAtariInternalModPlugin):
         "opponent_density": 0.0,
         "opponent_density_increment": 0.0
     }
+
+
+# --- CRL dyn4 pattern mods (traffic density/speed, curve physics, acceleration)
+class DenseTrafficMod(JaxAtariInternalModPlugin):
+    """Doubles opponent car density (0.17 -> 0.34) and raises the per-level
+    density cap so traffic stays dense on later levels (spawn-density axis)."""
+    constants_overrides = {
+        "opponent_density": 0.34,
+        "max_opponent_density": 0.5,
+    }
+
+
+class FasterOpponentsMod(JaxAtariInternalModPlugin):
+    """Doubles opponent car speed (2 -> 4) and raises the per-level speed cap
+    (5 -> 8) so the difference persists across levels. Player max speed (9)
+    still exceeds it, so passing cars stays possible."""
+    constants_overrides = {
+        "opponent_speed": 4,
+        "max_opponent_speed": 8.0,
+    }
+
+
+class SharpCurvesMod(JaxAtariInternalModPlugin):
+    """Triples how hard curves pull the car sideways (curve_rate 0.05 -> 0.15);
+    the physics counterpart to the start_in_curve layout mods."""
+    constants_overrides = {"curve_rate": 0.15}
+
+
+class SluggishAccelerationMod(JaxAtariInternalModPlugin):
+    """Car takes twice as long to gain each speed phase (accel_intervals
+    doubled); braking is unchanged, so recovering from collisions is costly."""
+    constants_overrides = {
+        "accel_intervals": jnp.array([30, 60, 60, 60, 60, 80, 120, 120, 120], dtype=jnp.int32),
+    }

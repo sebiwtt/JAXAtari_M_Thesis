@@ -11,6 +11,11 @@ from jaxatari.games.mods.phoenix.phoenix_mod_plugins import (
     InvertedColorsMod,
     MatrixMod,
     BloodMoonMod,
+    FastEnemiesMod,
+    AggressiveDivesMod,
+    SlowPlayerShotsMod,
+    FastBossDescentMod,
+    TriggerHappyMod,
 )
 
 
@@ -31,6 +36,13 @@ class PhoenixEnvMod(JaxAtariModController):
         "inverted_colors": InvertedColorsMod,
         "matrix_theme": MatrixMod,
         "blood_moon": BloodMoonMod,
+
+        # CRL dyn4 pattern mods
+        "fast_enemies": FastEnemiesMod,
+        "aggressive_dives": AggressiveDivesMod,
+        "slow_player_shots": SlowPlayerShotsMod,
+        "fast_boss_descent": FastBossDescentMod,
+        "trigger_happy": TriggerHappyMod,
     }
 
     def __init__(

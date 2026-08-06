@@ -8,6 +8,11 @@ from jaxatari.games.mods.beamrider.beamrider_mod_plugins import (
     TeleportUFOsMod,
     ThreeLanesMod,
     ToasterMod,
+    FasterPlayerMod,
+    SlowerPlayerMod,
+    DenseHazardsMod,
+    FastEnemyShotsMod,
+    AggressiveUFOsMod,
 )
 
 
@@ -25,6 +30,13 @@ class BeamRiderEnvMod(JaxAtariModController):
         "teleport_ufos": TeleportUFOsMod,
         "three_lanes": ThreeLanesMod,
         "toaster": ToasterMod,
+
+        # CRL dyn4 pattern mods
+        "faster_player": FasterPlayerMod,
+        "slower_player": SlowerPlayerMod,
+        "dense_hazards": DenseHazardsMod,
+        "fast_enemy_shots": FastEnemyShotsMod,
+        "aggressive_ufos": AggressiveUFOsMod,
     }
 
     def __init__(

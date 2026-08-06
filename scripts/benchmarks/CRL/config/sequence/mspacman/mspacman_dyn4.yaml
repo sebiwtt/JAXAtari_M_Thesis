@@ -1,0 +1,19 @@
+# @package _global_
+# Ordered single-mod tasks; index 0 must be the base task (no mods). Mod keys are
+# from src/jaxatari/games/mods/mspacman_mods.py. At most one mod per task.
+ENV_ID: mspacman
+SEQUENCE: dyn4
+TASK_MODS:
+  - []
+  - ["short_fright"]       # power pellets last ~1/3 as long
+  - ["long_fright"]        # power pellets last 2x as long
+  - ["relentless_ghosts"]  # chase phases 3x longer, scatter ~1/3
+  - ["eager_ghosts"]       # ghosts leave jail immediately, return fast when eaten
+
+# --- More Options (pre-existing pure dynamics mods) ---
+# random_ghost_navigation  # ghosts wander randomly instead of chase/scatter
+# caged_ghosts             # ghosts stay jailed (pure pellet collection)
+# only_1_ghost / only_2_ghost / only_3_ghost
+# constant_fruits          # fruit always spawned
+# (set_maze_1..4 change dynamics but are a full visual maze change;
+#  fruit_ghost_bonus is a reward-family mod)

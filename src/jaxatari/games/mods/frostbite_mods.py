@@ -2,7 +2,8 @@ import os
 from jaxatari.modification import JaxAtariModController
 from jaxatari.games.mods.frostbite.frostbite_mod_plugins import (
     NoEnemiesMod, LightBlueIceMod, _StaticIceMod, _MisalignedIceMod, _AlignedIceMod, RecoloredObstaclesMod, TigerMod,
-    WhiteIglooMod, LeftIglooMod, EarlyBearMod, DarkNightMod
+    WhiteIglooMod, LeftIglooMod, EarlyBearMod, DarkNightMod,
+    FastIceMod, FastBaileyMod, SlowBaileyMod, FastTemperatureDrainMod
 )
 
 # --- The Registry ---
@@ -20,7 +21,13 @@ FROSTBITE_MOD_REGISTRY = {
     "_aligned_ice": _AlignedIceMod,
     "static_aligned_ice": ["_static_ice", "_aligned_ice"],
     "static_misaligned_ice": ["_static_ice", "_misaligned_ice"],
-    "change_sprites": ["tiger", "white_igloo", "recolored_obstacles", "lightblue_ice"]
+    "change_sprites": ["tiger", "white_igloo", "recolored_obstacles", "lightblue_ice"],
+
+    # CRL dyn4 pattern mods
+    "fast_ice": FastIceMod,
+    "fast_bailey": FastBaileyMod,
+    "slow_bailey": SlowBaileyMod,
+    "fast_temperature_drain": FastTemperatureDrainMod,
 }
 
 class FrostbiteEnvMod(JaxAtariModController):

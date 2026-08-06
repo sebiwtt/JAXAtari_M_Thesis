@@ -1,0 +1,19 @@
+# @package _global_
+# Ordered single-mod tasks; index 0 must be the base task (no mods). Mod keys are
+# from src/jaxatari/games/mods/phoenix_mods.py. At most one mod per task.
+ENV_ID: phoenix
+SEQUENCE: dyn4
+TASK_MODS:
+  - []
+  - ["fast_enemies"]       # birds + bats move 2x as fast in formation
+  - ["aggressive_dives"]   # dives 2x as fast and 2x as frequent
+  - ["slow_player_shots"]  # player projectile speed x0.5 (6 -> 3)
+  - ["trigger_happy"]      # enemies fire 4x as often (active from level 1)
+
+# --- More Options (pre-existing pure dynamics mods) ---
+# fast_boss_descent    # new: boss phase 2x as fast -- only matters on level 5
+# fast_player          # player step size x2
+# fast_enemy_bullets   # enemy projectile speed 4
+# no_ability_cooldown  # shield always available
+# boss_late_missiles   # boss missiles become visible later after spawn
+# (infinite_lives / invincible_player are degenerate for RL)

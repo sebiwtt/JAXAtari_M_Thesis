@@ -362,3 +362,40 @@ class MatrixMod(JaxAtariInternalModPlugin):
         'RGB_FRUIT': (0, 255, 0),
         'RGB_SCORE': (0, 255, 0),
     }
+
+
+# --- CRL dyn4 pattern mods (fright timing, chase/scatter schedule, jail) -----
+class ShortFrightMod(JaxAtariInternalModPlugin):
+    """Power pellets frighten ghosts for ~1/3 of the base time (260 -> 80 ticks,
+    blinking 80 -> 40): ghost-eating needs immediate follow-up."""
+    constants_overrides = {
+        "FRIGHTENED_DURATION": 80,
+        "BLINKING_DURATION": 40,
+    }
+
+
+class LongFrightMod(JaxAtariInternalModPlugin):
+    """Power pellets last twice as long (260 -> 520 ticks): the easier
+    counterpart to short_fright."""
+    constants_overrides = {"FRIGHTENED_DURATION": 520}
+
+
+class RelentlessGhostsMod(JaxAtariInternalModPlugin):
+    """Ghosts chase almost permanently: chase phases 3x longer, scatter phases
+    cut to ~1/3 (random offsets scaled to match, staying ~duration/10)."""
+    constants_overrides = {
+        "CHASE_DURATION": 1200,
+        "MAX_CHASE_OFFSET": 120.0,
+        "SCATTER_DURATION": 40,
+        "MAX_SCATTER_OFFSET": 4.0,
+    }
+
+
+class EagerGhostsMod(JaxAtariInternalModPlugin):
+    """All ghosts leave the jail almost immediately (Inky 100 / Pinky 140 -> 20
+    ticks, matching Sue) and return from being eaten much faster (200 -> 60)."""
+    constants_overrides = {
+        "INKY_RELEASE_TIME": 20,
+        "PINKY_RELEASE_TIME": 20,
+        "ENJAILED_DURATION": 60,
+    }

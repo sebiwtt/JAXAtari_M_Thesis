@@ -1,0 +1,17 @@
+# @package _global_
+# Ordered single-mod tasks; index 0 must be the base task (no mods). Mod keys are
+# from src/jaxatari/games/mods/enduro_mods.py. At most one mod per task.
+ENV_ID: enduro
+SEQUENCE: dyn4
+TASK_MODS:
+  - []
+  - ["dense_traffic"]          # opponent car density x2 (0.17 -> 0.34)
+  - ["faster_opponents"]       # opponent car speed x2 (2 -> 4)
+  - ["sharp_curves"]           # curves pull 3x harder (curve_rate 0.05 -> 0.15)
+  - ["sluggish_acceleration"]  # gaining each speed phase takes 2x as long
+
+# --- More Options (pre-existing pure dynamics mods) ---
+# no_opponents        # opponent cars disabled (pure driving task)
+# start_in_curve      # track curves from km 0
+# start_in_max_curve  # track starts in a full-strength curve
+# short_days          # weather cycles every 16km driven; cars-to-pass /10

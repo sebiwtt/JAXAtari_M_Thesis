@@ -1,0 +1,22 @@
+# @package _global_
+# Ordered single-mod tasks; index 0 must be the base task (no mods). Mod keys are
+# from src/jaxatari/games/mods/gravitar_mods.py. At most one mod per task.
+ENV_ID: gravitar
+SEQUENCE: dyn4
+TASK_MODS:
+  - []
+  - ["fast_saucers"]      # saucer speed x2 (map + arena)
+  - ["sluggish_ship"]     # thrust power + max speed x0.5
+  - ["rapid_enemy_fire"]  # saucers/enemies fire 2x as often
+  - ["early_saucer"]      # saucer/UFO spawn delays cut to 1/4
+
+# --- More Options (pre-existing pure dynamics mods) ---
+# zero_gravity / hyper_gravity / anti_gravity  # gravity off / x3 / reversed
+# high_speed          # thrust + max speed up (counterpart to sluggish_ship)
+# rapid_fire          # bullet caps raised to 4 for everyone
+# fuel_crisis         # fuel consumption x5
+# slow_enemies        # saucer + bullet speed down
+# harmless_enemies    # enemy bullets disabled
+# infinite_fuel       # fuel consumption off
+# long_range_tractor  # tractor beam range up
+# valuable_reactor    # reactor level layout with enemies + fuel tanks

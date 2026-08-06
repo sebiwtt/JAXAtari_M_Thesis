@@ -4,7 +4,8 @@ from jaxatari.games.mods.skiing.skiing_mod_plugins import (
     MoreTreesMod, MoreMogulsMod, DangerousMogulsMod, JumpToBreakMod, 
     SpeedBurstMod, TreesEverywhereMod, HallOfFameMod,
     InvertFlagsMod, InvertFlagColorsMod, MovingFlagsMod, RandomFlagsMod, FlagFlurryMod, MogulsToTreesMod,
-    ClassicTreesMod, ThinMogulsMod, BlueSkiierMod, GreenFlagsMod, RewardAtGateMod
+    ClassicTreesMod, ThinMogulsMod, BlueSkiierMod, GreenFlagsMod, RewardAtGateMod,
+    FastSkierMod, SlowSkierMod, IcySlopeMod, GrippySlopeMod
 )
 
 class SkiingEnvMod(JaxAtariModController):
@@ -37,6 +38,12 @@ class SkiingEnvMod(JaxAtariModController):
         "reward_at_gate": RewardAtGateMod,
         "off_piste": ["_more_trees", "_trees_everywhere", "_more_moguls", "_dangerous_moguls"],
         "change_sprites": ["classic_trees", "thin_moguls", "blue_skiier", "green_flags"],
+
+        # CRL dyn4 pattern mods
+        "fast_skier": FastSkierMod,
+        "slow_skier": SlowSkierMod,
+        "icy_slope": IcySlopeMod,
+        "grippy_slope": GrippySlopeMod,
     }
 
     def __init__(self,

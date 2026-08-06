@@ -136,3 +136,48 @@ class BloodMoonMod(JaxAtariInternalModPlugin):
         'RGB_BATS_BLUE': (150, 0, 0),
         'RGB_BATS_RED': (255, 100, 100),
     }
+
+
+# --- CRL dyn4 pattern mods (enemy speed, dive rate, shot speed, boss pace) ---
+class FastEnemiesMod(JaxAtariInternalModPlugin):
+    """Phoenix birds and bats move twice as fast in formation (0.25 -> 0.5)."""
+    constants_overrides = {
+        "PHOENIX_ENEMY_STEP_SIZE": 0.5,
+        "BAT_STEP_SIZE": 0.5,
+    }
+
+
+class AggressiveDivesMod(JaxAtariInternalModPlugin):
+    """Enemies dive at the player twice as fast (attack speed 0.65 -> 1.3) and
+    bats start dives twice as often (interval 120 -> 60)."""
+    constants_overrides = {
+        "PHOENIX_ATTACK_SPEED": 1.3,
+        "BAT_DIVE_INTERVAL": 60,
+    }
+
+
+class SlowPlayerShotsMod(JaxAtariInternalModPlugin):
+    """Player projectiles travel at half speed (6 -> 3 px/frame): shots must be
+    led further and the screen supports fewer hits per second."""
+    constants_overrides = {"PLAYER_PROJECTILE_SPEED": 3}
+
+
+class FastBossDescentMod(JaxAtariInternalModPlugin):
+    """The level-5 boss descends twice as fast (drop and block-step intervals
+    halved), shortening the window to break through the shield."""
+    constants_overrides = {
+        "BOSS_DROP_INTERVAL": 30,
+        "BOSS_BLOCK_STEP_INTERVAL": 240,
+    }
+
+
+class TriggerHappyMod(JaxAtariInternalModPlugin):
+    """Enemies fire twice as fast: the salvo shot gap is halved (12 -> 6) for
+    both birds and bats, which also halves the long inter-salvo pauses (they
+    are gap * multiplier). Projectile speed is unchanged. Bites from level 1,
+    unlike the boss-phase mods. (FIRE_CHANCE is a dead constant in jax_phoenix;
+    the salvo system drives all enemy fire.)"""
+    constants_overrides = {
+        "PHOENIX_SALVO_SHOT_GAP": 6,
+        "BAT_SALVO_SHOT_GAP": 6,
+    }

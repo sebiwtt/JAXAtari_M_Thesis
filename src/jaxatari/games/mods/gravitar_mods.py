@@ -15,6 +15,10 @@ from jaxatari.games.mods.gravitar.gravitar_mod_plugins import (
     RedAlertMod,
     GrayscaleMod,
     InvertedColorsMod,
+    FastSaucersMod,
+    SluggishShipMod,
+    RapidEnemyFireMod,
+    EarlySaucerMod,
 )
 
 
@@ -37,6 +41,12 @@ class GravitarEnvMod(JaxAtariModController):
         "red_alert": RedAlertMod,
         "grayscale": GrayscaleMod,
         "inverted_colors": InvertedColorsMod,
+
+        # CRL dyn4 pattern mods
+        "fast_saucers": FastSaucersMod,
+        "sluggish_ship": SluggishShipMod,
+        "rapid_enemy_fire": RapidEnemyFireMod,
+        "early_saucer": EarlySaucerMod,
     }
 
     def __init__(

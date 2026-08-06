@@ -374,3 +374,32 @@ class InvertedColorsMod(JaxAtariInternalModPlugin):
         "RGB_RED": (117, 128, 240),
     }
 
+
+
+# --- CRL dyn4 pattern mods (player speed, ball physics, shot depth) ----------
+class SlowPlayerMod(JaxAtariPostStepModPlugin):
+    """Halves player walk speed (mirror of FastPlayerMod: the walk speed lives
+    in the state, so it is set once after reset)."""
+    def after_reset(self, obs, state: TennisState) -> Tuple[Any, TennisState]:
+        return obs, state.replace(player_state=state.player_state.replace(player_walk_speed=jnp.array(0.5)))
+
+
+class FloatyBallMod(JaxAtariInternalModPlugin):
+    """Halves ball gravity (1.1 -> 0.55): higher, slower arcs leave more time to
+    position (counterpart to super_gravity)."""
+    constants_overrides = {"BALL_GRAVITY_PER_FRAME": 0.55}
+
+
+class LowBounceMod(JaxAtariInternalModPlugin):
+    """Lowers the serve bounce velocity (21 -> 14), the counterpart to
+    high_bounce (30)."""
+    constants_overrides = {"BALL_SERVING_BOUNCE_VELOCITY_BASE": 14}
+
+
+class ShortShotsMod(JaxAtariInternalModPlugin):
+    """Both players' shots travel ~2/3 the distance (long 91 -> 65, short
+    40 -> 30): rallies happen closer to the net and deep coverage matters less."""
+    constants_overrides = {
+        "LONG_HIT_DISTANCE": 65,
+        "SHORT_HIT_DISTANCE": 30,
+    }

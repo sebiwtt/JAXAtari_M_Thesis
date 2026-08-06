@@ -14,6 +14,10 @@ from jaxatari.games.mods.tennis.tennis_mod_plugins import (
     NightMod,
     GrayscaleMod,
     InvertedColorsMod,
+    SlowPlayerMod,
+    FloatyBallMod,
+    LowBounceMod,
+    ShortShotsMod,
 )
 
 class TennisEnvMod(JaxAtariModController):
@@ -36,6 +40,12 @@ class TennisEnvMod(JaxAtariModController):
         "night_mode": NightMod,
         "grayscale": GrayscaleMod,
         "inverted_colors": InvertedColorsMod,
+
+        # CRL dyn4 pattern mods
+        "slow_player": SlowPlayerMod,
+        "floaty_ball": FloatyBallMod,
+        "low_bounce": LowBounceMod,
+        "short_shots": ShortShotsMod,
     }
 
     _mod_sprite_dir = os.path.join(os.path.dirname(__file__), "tennis", "sprites")

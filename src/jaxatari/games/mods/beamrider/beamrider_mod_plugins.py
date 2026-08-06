@@ -3621,3 +3621,43 @@ class TeleportUFOsMod(JaxAtariInternalModPlugin):
             pattern_timer,
             new_key,
         )
+
+
+# --- CRL dyn4 pattern mods (player speed, spawn density, enemy shots) --------
+class FasterPlayerMod(JaxAtariInternalModPlugin):
+    """Player ship moves twice as fast horizontally (PLAYER_SPEED 2.5 -> 5.0)."""
+    constants_overrides = {"PLAYER_SPEED": 5.0}
+
+
+class SlowerPlayerMod(JaxAtariInternalModPlugin):
+    """Player ship moves at half speed (PLAYER_SPEED 2.5 -> 1.25)."""
+    constants_overrides = {"PLAYER_SPEED": 1.25}
+
+
+class DenseHazardsMod(JaxAtariInternalModPlugin):
+    """Hazards spawn 2-4x more often: falling rocks, lane blockers, kamikazes,
+    and meteoroid waves all arrive at a much higher rate (spawn-density axis,
+    like asteroids' more_asteroids). Enemy speeds are untouched."""
+    constants_overrides = {
+        "FALLING_ROCK_SPAWN_PROB": 0.008,
+        "LANE_BLOCKER_SPAWN_PROB": 1 / 450,
+        "KAMIKAZE_SPAWN_INTERVAL": 125,
+        "CHASING_METEOROID_SPAWN_INTERVAL_MAX": 20,
+    }
+
+
+class FastEnemyShotsMod(JaxAtariInternalModPlugin):
+    """White-UFO shots travel twice as fast (0.8 -> 1.6); UFO movement itself is
+    unchanged (contrast with double_enemy_speed, which scales everything)."""
+    constants_overrides = {"WHITE_UFO_SHOT_SPEED_FACTOR": 1.6}
+
+
+class AggressiveUFOsMod(JaxAtariInternalModPlugin):
+    """White UFOs start attacking (diving/shooting) far sooner and more often:
+    the per-frame attack probability floor is raised 50x and its time-ramp 5x.
+    Unlike dense_hazards (rocks/blockers/kamikazes gate on sector >= 4/10/12),
+    this bites from sector 1, where CRL training actually happens."""
+    constants_overrides = {
+        "WHITE_UFO_ATTACK_P_MIN": 0.02,
+        "WHITE_UFO_ATTACK_ALPHA": 0.001,
+    }

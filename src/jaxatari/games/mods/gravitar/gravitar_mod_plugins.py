@@ -164,3 +164,73 @@ class InvertedColorsMod(JaxAtariInternalModPlugin):
             {"source": (84, 160, 197), "target": (171, 95, 58)},
         )
     }
+
+
+# --- CRL dyn4 pattern mods (enemy speed, ship handling, fire rate, spawn) ----
+# Note: jax_gravitar freezes many combat constants at module level
+# (_DEFAULT_CONSTS at import time), so constants_overrides silently do nothing
+# for those (e.g. SAUCER_SPEED_*, SAUCER_SPAWN/RESPAWN delays,
+# SAUCER_FIRE_INTERVAL_FRAMES). Mods below therefore either use constants that
+# ARE read via self.consts at runtime, or patch the state post-step.
+from functools import partial
+import jax
+import jax.numpy as jnp
+from jaxatari.modification import JaxAtariPostStepModPlugin
+
+
+class FastSaucersMod(JaxAtariPostStepModPlugin):
+    """Doubles saucer movement speed (counterpart to slow_enemies).
+
+    The saucer speed constants are module-frozen (see note above), so this
+    post-step mod amplifies the pixel step the base game took this frame
+    (seaquest faster_enemies approach): each genuine per-frame move (saucer
+    alive on both frames, small delta) is doubled. Spawns/despawns (large
+    position jumps) are left alone; base speeds are 0.18/0.36 px per frame, so
+    the 2.0 threshold cleanly separates the two."""
+    _MULT = 2.0
+
+    @partial(jax.jit, static_argnums=(0,))
+    def run(self, prev_state, new_state):
+        prev_s, new_s = prev_state.saucer, new_state.saucer
+        dx = new_s.x - prev_s.x
+        dy = new_s.y - prev_s.y
+        genuine = prev_s.alive & new_s.alive & (jnp.abs(dx) <= 2.0) & (jnp.abs(dy) <= 2.0)
+        scale = self._MULT - 1.0
+        new_saucer = new_s.replace(
+            x=jnp.where(genuine, new_s.x + dx * scale, new_s.x),
+            y=jnp.where(genuine, new_s.y + dy * scale, new_s.y),
+        )
+        return new_state.replace(saucer=new_saucer)
+
+
+class SluggishShipMod(JaxAtariInternalModPlugin):
+    """Halves ship thrust power and max speed (counterpart to high_speed):
+    escaping gravity wells takes far more deliberate thrusting."""
+    constants_overrides = {
+        "THRUST_POWER": 0.015,
+        "MAX_SPEED": 1.25,
+    }
+
+
+class RapidEnemyFireMod(JaxAtariInternalModPlugin):
+    """Bunker enemies on planet levels fire twice as often (cooldown 10 -> 5).
+    The saucer's fire interval is module-frozen (see note above) and stays at
+    its default."""
+    constants_overrides = {
+        "ENEMY_FIRE_COOLDOWN_FRAMES": 5,
+    }
+
+
+class EarlySaucerMod(JaxAtariPostStepModPlugin):
+    """Saucer harassment starts almost immediately and returns quickly: the
+    spawn/respawn countdown is capped at 50 frames (base: 200 initial, 540
+    after a kill). The delay constants are module-frozen (see note above), so
+    the state timer is clamped post-step instead; the ~alive guard in the base
+    spawn logic keeps the while-alive sentinel harmless."""
+    _CAP = 50
+
+    @partial(jax.jit, static_argnums=(0,))
+    def run(self, prev_state, new_state):
+        return new_state.replace(
+            saucer_spawn_timer=jnp.minimum(new_state.saucer_spawn_timer, self._CAP)
+        )

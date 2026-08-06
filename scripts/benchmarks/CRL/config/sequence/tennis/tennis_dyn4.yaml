@@ -1,0 +1,20 @@
+# @package _global_
+# Ordered single-mod tasks; index 0 must be the base task (no mods). Mod keys are
+# from src/jaxatari/games/mods/tennis_mods.py. At most one mod per task.
+ENV_ID: tennis
+SEQUENCE: dyn4
+TASK_MODS:
+  - []
+  - ["slow_player"]  # player walk speed x0.5
+  - ["floaty_ball"]  # ball gravity x0.5: higher, slower arcs
+  - ["low_bounce"]   # serve bounce velocity 21 -> 14
+  - ["short_shots"]  # both players' shots travel ~2/3 the distance
+
+# --- More Options (pre-existing pure dynamics mods) ---
+# fast_player        # player walk speed x2
+# lazy_enemy         # opponent moves slower
+# fast_enemy         # opponent moves faster
+# super_gravity      # ball gravity 1.1 -> 2.2
+# high_bounce        # serve bounce velocity 21 -> 30
+# random_ball_speed  # random ball speed after every hit
+# random_walk_speed  # random walk speed each time movement starts

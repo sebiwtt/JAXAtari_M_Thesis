@@ -388,3 +388,39 @@ class InvertFlagsModOld(JaxAtariInternalModPlugin):
             return r
 
         return jax.lax.fori_loop(0, self._env.consts.max_num_flags, draw_flag, raster)
+
+
+# --- CRL dyn4 pattern mods (skier speed, snow-grip physics) ------------------
+class FastSkierMod(JaxAtariInternalModPlugin):
+    """Raises the skier's top speed by 50% in every direction (1.2 -> 1.8);
+    unlike speed_burst, this does not require holding DOWN."""
+    constants_overrides = {
+        "max_speed": 1.8,
+        "down_max_speed": 1.8,
+    }
+
+
+class SlowSkierMod(JaxAtariInternalModPlugin):
+    """Halves the skier's top speed (1.2 -> 0.6)."""
+    constants_overrides = {
+        "max_speed": 0.6,
+        "down_max_speed": 0.6,
+    }
+
+
+class IcySlopeMod(JaxAtariInternalModPlugin):
+    """Icy snow: acceleration cut to ~1/3 (0.05 -> 0.015), so direction changes
+    respond sluggishly and drift wide (skiing's ship_inertia counterpart)."""
+    constants_overrides = {
+        "base_accel": 0.015,
+        "down_accel": 0.015,
+    }
+
+
+class GrippySlopeMod(JaxAtariInternalModPlugin):
+    """Grippy snow: acceleration tripled (0.05 -> 0.15), so steering responds
+    almost instantly (the snappy counterpart to icy_slope)."""
+    constants_overrides = {
+        "base_accel": 0.15,
+        "down_accel": 0.15,
+    }

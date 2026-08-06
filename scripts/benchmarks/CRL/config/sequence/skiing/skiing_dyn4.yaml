@@ -1,0 +1,23 @@
+# @package _global_
+# Ordered single-mod tasks; index 0 must be the base task (no mods). Mod keys are
+# from src/jaxatari/games/mods/skiing_mods.py. At most one mod per task
+# (combined registry aliases like off_piste count as one key).
+ENV_ID: skiing
+SEQUENCE: dyn4
+TASK_MODS:
+  - []
+  - ["fast_skier"]    # top speed x1.5 in every direction
+  - ["slow_skier"]    # top speed x0.5
+  - ["icy_slope"]     # acceleration ~1/3: sluggish, drifting turns
+  - ["grippy_slope"]  # acceleration x3: near-instant steering
+
+# --- More Options (pre-existing pure dynamics mods) ---
+# speed_burst    # DOWN accelerates beyond the default max speed
+# off_piste      # more trees everywhere + more, collidable moguls
+# moving_flags   # gates slide horizontally while skiing
+# random_flags   # randomized horizontal gate placement
+# flag_flurry    # many more gates
+# hall_of_fame   # centered gates + tree corridor
+# invert_flags   # inverted gate-crossing logic
+# (moguls_to_trees changes dynamics but swaps sprites;
+#  reward_at_gate is a reward-family mod)

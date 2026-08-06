@@ -12,7 +12,11 @@ from jaxatari.games.mods.mspacman.mspacman_mod_plugins import (
     Only2GhostMod,
     Only3GhostMod,
     RandomGhostNavigationMod,
-    MatrixMod
+    MatrixMod,
+    ShortFrightMod,
+    LongFrightMod,
+    RelentlessGhostsMod,
+    EagerGhostsMod,
 )
 
 class MsPacmanEnvMod(JaxAtariModController):
@@ -32,6 +36,12 @@ class MsPacmanEnvMod(JaxAtariModController):
         "only_3_ghost": Only3GhostMod,
         "random_ghost_navigation": RandomGhostNavigationMod,
         "matrix_theme": MatrixMod,
+
+        # CRL dyn4 pattern mods
+        "short_fright": ShortFrightMod,
+        "long_fright": LongFrightMod,
+        "relentless_ghosts": RelentlessGhostsMod,
+        "eager_ghosts": EagerGhostsMod,
     }
 
     _mod_sprite_dir = os.path.join(os.path.dirname(__file__), "mspacman", "sprites")

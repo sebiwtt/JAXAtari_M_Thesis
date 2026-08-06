@@ -1,0 +1,20 @@
+# @package _global_
+# Ordered single-mod tasks; index 0 must be the base task (no mods). Mod keys are
+# from src/jaxatari/games/mods/beamrider_mods.py. At most one mod per task.
+ENV_ID: beamrider
+SEQUENCE: dyn4
+TASK_MODS:
+  - []
+  - ["faster_player"]     # player ship speed x2 (2.5 -> 5.0)
+  - ["slower_player"]     # player ship speed x0.5
+  - ["aggressive_ufos"]   # UFOs attack far sooner and more often (active from sector 1)
+  - ["fast_enemy_shots"]  # UFO shot speed x2 (UFO movement unchanged)
+
+# --- More Options (pre-existing pure dynamics mods) ---
+# double_enemy_speed  # all enemy movement + shots x2
+# dense_hazards       # new: rocks/blockers/kamikazes spawn more often -- but those
+#                     # entities only exist from sector >= 4/10/12, so it has no
+#                     # effect in early sectors
+# teleport_ufos       # white UFOs can snap to a nearby lane
+# hardcore            # 1 life, no extra lives (episode-structure change)
+# (three_lanes / mothership_laser also change dynamics but alter the visual scene)

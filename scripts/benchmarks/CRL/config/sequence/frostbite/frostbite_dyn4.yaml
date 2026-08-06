@@ -1,0 +1,19 @@
+# @package _global_
+# Ordered single-mod tasks; index 0 must be the base task (no mods). Mod keys are
+# from src/jaxatari/games/mods/frostbite_mods.py. At most one mod per task
+# (combined registry aliases like static_aligned_ice count as one key).
+ENV_ID: frostbite
+SEQUENCE: dyn4
+TASK_MODS:
+  - []
+  - ["fast_ice"]                # ice floes drift 2x as fast
+  - ["fast_bailey"]             # Bailey walks 2x as fast (0.5 -> 1 px/frame)
+  - ["slow_bailey"]             # Bailey walks at half speed
+  - ["fast_temperature_drain"]  # temperature drops 2x as fast (time pressure)
+
+# --- More Options (pre-existing pure dynamics mods) ---
+# no_enemies             # bear/geese/crabs/clams disabled, fishes remain
+# early_bear             # polar bear spawns from level 1
+# static_aligned_ice     # ice floes frozen in place, perfectly centered
+# static_misaligned_ice  # frozen floes, staggered gaps
+# (left_igloo also changes dynamics but visibly relocates the igloo)

@@ -188,3 +188,44 @@ class DarkNightMod(JaxAtariInternalModPlugin):
         "RGB_NIGHT": (20, 20, 60),  # Dark blue sky
         "DRAW_SHORE_LINE": True,
     }
+
+
+# --- CRL dyn4 pattern mods (ice speed, player speed, temperature drain) ------
+class FastIceMod(JaxAtariInternalModPlugin):
+    """Doubles the horizontal drift speed of the ice floes at every level.
+    Speeds are 1/16-fixed-point (whole + frac), so the doubled raw value is
+    re-encoded to keep whole/frac valid. Same patch point as _static_ice."""
+    @partial(jax.jit, static_argnums=(0,))
+    def _calculate_speeds_for_level(self, level: jnp.ndarray):
+        from jaxatari.games.jax_frostbite import JaxFrostbite
+        speeds = JaxFrostbite._calculate_speeds_for_level(self._env, level)
+        raw = speeds['ice_speed_whole'] * 16 + speeds['ice_speed_frac']
+        doubled = raw * 2
+        speeds['ice_speed_whole'] = doubled // 16
+        speeds['ice_speed_frac'] = doubled % 16
+        return speeds
+
+
+class FastBaileyMod(JaxAtariInternalModPlugin):
+    """Doubles Bailey's walking speed: 0.5 px/frame (frac 8/16) -> 1 px/frame.
+    Encoded as whole=1 / frac=0 to keep the fractional part inside its 0-15
+    contract instead of overriding BAILEY_WALK_SPEED_FRAC past 15."""
+    @partial(jax.jit, static_argnums=(0,))
+    def _calculate_speeds_for_level(self, level: jnp.ndarray):
+        from jaxatari.games.jax_frostbite import JaxFrostbite
+        speeds = JaxFrostbite._calculate_speeds_for_level(self._env, level)
+        speeds['bailey_walk_speed_whole'] = 1
+        speeds['bailey_walk_speed_frac'] = 0
+        return speeds
+
+
+class SlowBaileyMod(JaxAtariInternalModPlugin):
+    """Halves Bailey's walking speed (frac 8/16 -> 4/16 px per frame)."""
+    constants_overrides = {"BAILEY_WALK_SPEED_FRAC": 4}
+
+
+class FastTemperatureDrainMod(JaxAtariInternalModPlugin):
+    """Temperature drops twice as fast (drain interval 65 -> 32 frames), roughly
+    halving the time to finish the igloo (seaquest faster_oxygen_drain
+    counterpart)."""
+    constants_overrides = {"TEMP_DRAIN_INTERVAL": 32}
