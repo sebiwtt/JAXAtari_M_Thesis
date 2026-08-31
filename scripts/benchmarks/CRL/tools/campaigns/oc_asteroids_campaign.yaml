@@ -1,17 +1,16 @@
-gpus: [0, 1, 2, 3]
+gpus: [0, 1, 2, 3, 4, 5, 6, 7]
 seeds: [1, 2, 3]
 
 sequences:
   - asteroids_dyn4
   - asteroids_rew4
-  - asteroids_mag4
-  #- asteroids_vis4
+  - asteroids_vis4
 
 methods: [ft, ewc, agem, packnet]
 modalities: [oc]
 
 overrides:
   CRL_CURVE: true
-  PROJECT: "Thesis-Experiments"
+  PROJECT: "Thesis-Experiments-OC"
 
 # This campaign will resolve to 4 * 3 * 3 = 36 runs
