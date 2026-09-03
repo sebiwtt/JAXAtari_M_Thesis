@@ -3,14 +3,14 @@ seeds: [1, 2, 3]
 
 sequences:
   - kangaroo_dyn4
-  - kangaroo_rew4
   - kangaroo_vis4
+  - kangaroo_rew4
 
 methods: [ft, ewc, agem, packnet]
 modalities: [oc]
 
 overrides:
   CRL_CURVE: true
-PROJECT: "Thesis-Experiments-OC"
+  PROJECT: "Thesis-Experiments-OC"
 
 # This campaign will resolve to 4 * 3 * 3 = 36 runs

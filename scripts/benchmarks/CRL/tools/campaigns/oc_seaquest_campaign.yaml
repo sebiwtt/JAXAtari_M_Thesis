@@ -1,10 +1,10 @@
-gpus: [0, 1, 2, 3, 4, 5, 6, 7]
+gpus: [1, 2, 3, 4, 5, 10, 11, 12]
 seeds: [1, 2, 3]
 
 sequences:
   - seaquest_dyn4
-  - seaquest_rew4
   - seaquest_vis4
+  - seaquest_rew4
 
 methods: [ft, ewc, agem, packnet]
 modalities: [oc]

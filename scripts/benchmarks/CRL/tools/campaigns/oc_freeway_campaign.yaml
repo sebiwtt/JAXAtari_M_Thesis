@@ -3,8 +3,8 @@ seeds: [1, 2, 3]
 
 sequences:
   - freeway_dyn4
-  - freeway_rew4
   - freeway_vis4
+  - freeway_rew4
 
 methods: [ft, ewc, agem, packnet]
 modalities: [oc]
