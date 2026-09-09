@@ -1,5 +1,6 @@
 outputs/
 runs/
+tables/
 wandb/
 obs_frames/
 *.png

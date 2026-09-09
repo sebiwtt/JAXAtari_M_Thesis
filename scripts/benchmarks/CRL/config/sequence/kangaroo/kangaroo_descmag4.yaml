@@ -1,0 +1,10 @@
+# @package _global_
+# Descending magnitude: same ladder as kangaroo_ascmag4, hardest first -> easiest last.
+ENV_ID: kangaroo
+SEQUENCE: descmag4
+TASK_MODS:
+  - []
+  - ["coconut_speed_x8"]
+  - ["coconut_speed_x6"]
+  - ["coconut_speed_x4"]
+  - ["coconut_speed_x2"]

@@ -27,12 +27,15 @@
 from __future__ import annotations
 
 import argparse
+from collections import defaultdict
 from pathlib import Path
 
 import numpy as np
 
 from crl_data import (
     DEFAULT_AGG_ROOT,
+    ENV_LABEL,
+    ENV_ORDER,
     METHOD_LABEL,
     METHOD_ORDER,
     METRIC_SPEC,
@@ -129,27 +132,38 @@ def mark_best(cells: list[Cell], higher_better: bool | None) -> None:
         c.best = np.isclose(c.mean, target)
 
 
-def build_main_table(groups: dict, metric: str, modality: str, spread_kind: str) -> tuple[list[str], list[str], list[list[Cell]]]:
-    """rows = method, cols = sequence (+ pooled 'All'); cells = metric across seeds."""
+def build_main_table(groups: dict, metric: str, modality: str, spread_kind: str,
+                     env: str | None = None) -> tuple[list[str], list[str], list[list[Cell]]]:
+    """rows = method, cols = sequence (+ pooled 'All'); cells = metric across seeds.
+
+    `env=None` pools every game into each cell, which is only meaningful for the
+    unitless metrics (METRIC_SPEC's `pool_envs`) - raw returns live on per-game
+    scales. One env per table keeps a cell a single (env, method, sequence) group.
+    """
     spec = METRIC_SPEC.get(metric, {"higher_better": None, "dp": 3})
-    present = {g: a for g, a in groups.items() if a["modality"] == modality}
+    present = {g: a for g, a in groups.items()
+               if a["modality"] == modality and (env is None or a["env"] == env)}
     methods = order_by({a["method"] for a in present.values()}, METHOD_ORDER)
     sequences = order_by({a["sequence"] for a in present.values()}, SEQUENCE_ORDER)
-    by_key = {(a["method"], a["sequence"]): a for a in present.values()}
+    # Several envs may share a (method, sequence) cell when pooling, so collect
+    # lists - the old dict comprehension silently kept only the last env.
+    by_key: dict[tuple[str, str], list[dict]] = defaultdict(list)
+    for a in present.values():
+        by_key[(a["method"], a["sequence"])].append(a)
 
     rows: list[list[Cell]] = []
     for method in methods:
         row, bundles = [], []
         for seq in sequences:
-            agg = by_key.get((method, seq))
-            if agg is None or metric not in agg["stats"]:
+            aggs = [a for a in by_key.get((method, seq), []) if metric in a["stats"]]
+            if not aggs:
                 row.append(Cell(dp=spec["dp"]))
                 continue
-            b = agg["stats"][metric]
-            bundles.append(b)
-            row.append(Cell(float(b["mean"]), float(spread_of(b, spread_kind)),
-                            int(b["n"]), agg["n_seeds"], spec["dp"]))
-        n_expected = sum(by_key[(method, s)]["n_seeds"] for s in sequences if (method, s) in by_key)
+            cell_bundles = [a["stats"][metric] for a in aggs]
+            bundles += cell_bundles
+            n_expected = sum(a["n_seeds"] for a in aggs)
+            row.append(pooled_cell(cell_bundles, spread_kind, spec["dp"], n_expected))
+        n_expected = sum(a["n_seeds"] for s in sequences for a in by_key.get((method, s), []))
         row.append(pooled_cell(bundles, spread_kind, spec["dp"], n_expected) if bundles else Cell(dp=spec["dp"]))
         rows.append(row)
 
@@ -160,10 +174,16 @@ def build_main_table(groups: dict, metric: str, modality: str, spread_kind: str)
     return [METHOD_LABEL.get(m, m) for m in methods], header, rows
 
 
-def build_per_task_table(groups: dict, sequence: str, modality: str, spread_kind: str) -> tuple[list[str], list[str], list[list[Cell]]]:
-    """rows = method, cols = task; cells = per-task Forgetting[j]."""
+def build_per_task_table(groups: dict, sequence: str, modality: str, spread_kind: str,
+                         env: str | None = None) -> tuple[list[str], list[str], list[list[Cell]]]:
+    """rows = method, cols = task; cells = per-task Forgetting[j].
+
+    Task labels are per-env, so this always needs a single env - pooling would put
+    different games' tasks in one column.
+    """
     present = {g: a for g, a in groups.items()
-               if a["modality"] == modality and a["sequence"] == sequence}
+               if a["modality"] == modality and a["sequence"] == sequence
+               and (env is None or a["env"] == env)}
     if not present:
         return [], [], []
     methods = order_by({a["method"] for a in present.values()}, METHOD_ORDER)
@@ -263,6 +283,11 @@ def main() -> None:
     ap.add_argument("--metric", nargs="+", default=["mean_forgetting"],
                     choices=sorted(METRIC_SPEC), help="one table per metric (default: mean_forgetting)")
     ap.add_argument("--modality", nargs="+", default=MODALITY_ORDER, help="oc / pixel (default: both)")
+    ap.add_argument("--env", nargs="+", default=None,
+                    help="which games (default: all present); one block per game")
+    ap.add_argument("--pool-envs", action="store_true",
+                    help="one block pooling every game instead of a block per game; "
+                         "refused for metrics on a per-game scale (raw returns, compute time)")
     ap.add_argument("--spread", choices=["std", "sem", "ci95", "none"], default="std",
                     help="what follows the ± (default: std)")
     ap.add_argument("--format", choices=sorted(RENDERERS), default="markdown")
@@ -276,36 +301,55 @@ def main() -> None:
 
     groups = load_all(args.agg_root)
     modalities = [m for m in order_by(args.modality, MODALITY_ORDER)]
+    envs = order_by(args.env or {a["env"] for a in groups.values()}, ENV_ORDER)
+
+    def block_title(mod: str, env: str | None) -> str:
+        """Only name the dimensions that actually vary, so single-modality or
+        single-game runs do not carry a redundant label on every block."""
+        bits = [MODALITY_LABEL.get(mod, mod)] if len(modalities) > 1 else []
+        bits += [ENV_LABEL.get(env, env)] if env is not None and len(envs) > 1 else []
+        return " - ".join(bits)
     render = RENDERERS[args.format]
     tables: list[tuple[str, str]] = []  # (slug, rendered text)
 
     if args.per_task:
         sequences = order_by(args.sequence or {a["sequence"] for a in groups.values()}, SEQUENCE_ORDER)
         for seq in sequences:
-            blocks = []
-            for mod in modalities:
-                row_labels, header, rows = build_per_task_table(groups, seq, mod, args.spread)
-                if rows:
-                    blocks.append((MODALITY_LABEL.get(mod, mod), row_labels, header, rows))
-            if not blocks:
-                continue
-            title = f"Per-task forgetting - {SEQUENCE_LABEL.get(seq, seq)} sequence"
-            tables.append((f"forgetting_per_task_{seq}",
-                           render(blocks, title, spread_note(args.spread, blocks, args.format))))
+            for env in envs:
+                blocks = []
+                for mod in modalities:
+                    row_labels, header, rows = build_per_task_table(groups, seq, mod, args.spread, env)
+                    if rows:
+                        blocks.append((block_title(mod, env), row_labels, header, rows))
+                if not blocks:
+                    continue
+                title = (f"Per-task forgetting - {ENV_LABEL.get(env, env)}, "
+                         f"{SEQUENCE_LABEL.get(seq, seq)} sequence")
+                tables.append((f"forgetting_per_task_{env}_{seq}",
+                               render(blocks, title, spread_note(args.spread, blocks, args.format))))
     else:
         for metric in args.metric:
+            if args.pool_envs and not METRIC_SPEC[metric].get("pool_envs", False):
+                raise SystemExit(
+                    f"--pool-envs refused for {metric!r}: it is on a per-game scale, and "
+                    f"averaging it across games is meaningless. Drop --pool-envs, or use a "
+                    f"unitless metric ({', '.join(sorted(m for m, s in METRIC_SPEC.items() if s.get('pool_envs')))})."
+                )
+            block_envs = [None] if args.pool_envs else envs
             blocks = []
             for mod in modalities:
-                row_labels, header, rows = build_main_table(groups, metric, mod, args.spread)
-                if rows:
-                    blocks.append((MODALITY_LABEL.get(mod, mod), row_labels, header, rows))
+                for env in block_envs:
+                    row_labels, header, rows = build_main_table(groups, metric, mod, args.spread, env)
+                    if rows:
+                        blocks.append((block_title(mod, env), row_labels, header, rows))
             if not blocks:
                 continue
-            title = METRIC_SPEC[metric]["label"]
+            title = METRIC_SPEC[metric]["label"] + (" - pooled over games" if args.pool_envs else "")
             note = spread_note(args.spread, blocks, args.format)
             quoted = "``All''" if args.format == "latex" else '"All"'
-            note = (note + " " if note else "") + f"{quoted} pools every seed of all sequences."
-            tables.append((metric, render(blocks, title, note)))
+            pooled_over = "sequences and games" if args.pool_envs else "sequences"
+            note = (note + " " if note else "") + f"{quoted} pools every seed of all {pooled_over}."
+            tables.append((metric + ("_pooled" if args.pool_envs else ""), render(blocks, title, note)))
 
     if args.out is None:
         print("\n".join(text for _, text in tables))

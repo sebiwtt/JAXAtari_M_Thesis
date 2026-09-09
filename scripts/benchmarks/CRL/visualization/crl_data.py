@@ -21,8 +21,9 @@ DEFAULT_AGG_ROOT = SCRIPT_DIR.parent / "runs" / "aggregated"
 # Fixed display order. Methods: the naive baseline first, then the CL methods in
 # increasing structural intervention (regularization -> gradient projection ->
 # parameter isolation). Sequences: the perturbation axes in the thesis' order.
+ENV_ORDER = ["pong", "breakout", "freeway", "asteroids", "seaquest", "kangaroo"]
 METHOD_ORDER = ["ft", "ewc", "agem", "packnet"]
-SEQUENCE_ORDER = ["dyn4", "vis4", "rew4", "mag4"]
+SEQUENCE_ORDER = ["dyn4", "vis4", "rew4", "mag4", "ascmag4", "descmag4", "randmag4"]
 MODALITY_ORDER = ["oc", "pixel"]
 
 METHOD_LABEL = {"ft": "Fine-tuning", "ewc": "EWC", "agem": "A-GEM", "packnet": "PackNet"}
@@ -62,8 +63,12 @@ def diverging_cmap(name: str = "crl_div"):
     return LinearSegmentedColormap.from_list(name, BLUE_RAMP[::-1] + [NEUTRAL] + RED_RAMP)
 
 
-SEQUENCE_LABEL = {"dyn4": "Dynamics", "vis4": "Visual", "rew4": "Reward", "mag4": "Magnitude"}
+SEQUENCE_LABEL = {"dyn4": "Dynamics", "vis4": "Visual", "rew4": "Reward", "mag4": "Magnitude",
+                  "ascmag4": "Magnitude (asc.)", "descmag4": "Magnitude (desc.)",
+                  "randmag4": "Magnitude (rand.)"}
 MODALITY_LABEL = {"oc": "Object-centric", "pixel": "Pixel"}
+ENV_LABEL = {"pong": "Pong", "breakout": "Breakout", "freeway": "Freeway",
+             "asteroids": "Asteroids", "seaquest": "Seaquest", "kangaroo": "Kangaroo"}
 
 # runs/aggregated/<env>_<method>_<sequence>_<modality>
 GROUP_RE = re.compile(r"^(?P<env>[^_]+)_(?P<method>[^_]+)_(?P<sequence>[^_]+)_(?P<modality>oc|pixel)$")
@@ -71,14 +76,14 @@ GROUP_RE = re.compile(r"^(?P<env>[^_]+)_(?P<method>[^_]+)_(?P<sequence>[^_]+)_(?
 # How each metric should be read and printed. `higher_better` drives which cell a
 # table marks as best (None = no direction, e.g. wall-clock).
 METRIC_SPEC = {
-    "mean_forgetting":       {"label": "Mean forgetting",        "higher_better": False, "dp": 3},
-    "mean_retention":        {"label": "Mean retention",         "higher_better": True,  "dp": 3},
-    "final_avg_return":      {"label": "Final avg return",       "higher_better": True,  "dp": 2},
-    "final_avg_retention":   {"label": "Final avg retention",    "higher_better": True,  "dp": 3},
-    "avg_retention_lower":   {"label": "Avg retention (j<i)",    "higher_better": True,  "dp": 3},
-    "avg_final_return_norm": {"label": "Final return (norm.)",   "higher_better": True,  "dp": 3},
-    "backward_transfer":     {"label": "Backward transfer",      "higher_better": True,  "dp": 2},
-    "total_compute_time_sec": {"label": "Compute time (s)",      "higher_better": None,  "dp": 0},
+    "mean_forgetting":       {"label": "Mean forgetting",        "higher_better": False, "dp": 3, "pool_envs": True},
+    "mean_retention":        {"label": "Mean retention",         "higher_better": True,  "dp": 3, "pool_envs": True},
+    "final_avg_return":      {"label": "Final avg return",       "higher_better": True,  "dp": 2, "pool_envs": False},
+    "final_avg_retention":   {"label": "Final avg retention",    "higher_better": True,  "dp": 3, "pool_envs": True},
+    "avg_retention_lower":   {"label": "Avg retention (j<i)",    "higher_better": True,  "dp": 3, "pool_envs": True},
+    "avg_final_return_norm": {"label": "Final return (norm.)",   "higher_better": True,  "dp": 3, "pool_envs": True},
+    "backward_transfer":     {"label": "Backward transfer",      "higher_better": True,  "dp": 2, "pool_envs": False},
+    "total_compute_time_sec": {"label": "Compute time (s)",      "higher_better": None,  "dp": 0, "pool_envs": False},
 }
 
 
