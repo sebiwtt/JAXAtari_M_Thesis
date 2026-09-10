@@ -469,7 +469,7 @@ class DiverSpawnRateMod(JaxAtariInternalModPlugin):
 
 # ============================================================================ #
 # Magnitude sequences: two ladders (enemy speed xN, oxygen drain xN), each the
-# same dynamics mod scaled to incrementally harder levels. See seaquest_mag4.yaml.
+# same dynamics mod scaled to incrementally harder levels. See seaquest_ascmag4.yaml.
 # Each rung defines its own thin `run` (the controller only registers a post-step
 # mod when 'run' is in the concrete class __dict__) delegating to the base _apply.
 # ============================================================================ #

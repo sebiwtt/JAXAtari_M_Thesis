@@ -1,6 +1,7 @@
 outputs/
 runs/
 run_backups/
+tables/
 wandb/
 obs_frames/
 *.png

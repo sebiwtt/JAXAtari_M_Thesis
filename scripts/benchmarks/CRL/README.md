@@ -9,8 +9,14 @@ is lost during) subsequent training.
 
 The framework is game-agnostic; a task sequence just names a game and its ordered mods.
 Shipped: **6 games** (asteroids, breakout, freeway, kangaroo, pong, seaquest) × **4 mod
-families** (`dyn4` dynamics, `vis4` visuals, `rew4` reward, `mag4` one parameter scaled
-×2..×5) = 24 sequences of 5 tasks each.
+families** (`dyn4` dynamics, `vis4` visuals, `rew4` reward, and a magnitude ladder of one
+parameter scaled ×2..×5 in three orderings: `ascmag4` easy→hard, `descmag4` hard→easy,
+`randmag4` a frozen shuffle) = 36 sequences of 5 tasks each.
+
+The three magnitude orderings share the identical four rungs and differ only in their
+order, which isolates the effect of the curriculum's direction. `randmag4` is drawn once
+from a fixed seed by `tools/gen_randmag4.py` and committed; `--check` re-derives it and
+fails on drift.
 
 For a full implementation-level write-up (wrappers, metric derivations, method deviations
 from MEAL, caveats), see [`METHODOLOGY.md`](METHODOLOGY.md).
@@ -117,7 +123,7 @@ CRL/
 │
 ├── config/                  # Hydra config, composed from three groups
 │   ├── config.yaml          #   shared defaults + the `defaults:` list
-│   ├── sequence/            #   which game + ordered task mods  (24: 6 games × dyn4/vis4/rew4/mag4)
+│   ├── sequence/            #   which game + ordered task mods  (36: 6 games × dyn4/vis4/rew4/{asc,desc,rand}mag4)
 │   ├── method/              #   which CL method + its hyperparams (ft, ewc, agem, packnet)
 │   └── modality/            #   observation pipeline + budget    (oc, pixel)
 │
@@ -250,7 +256,7 @@ It warns if the requested GPU is already busy, skips sequences whose `runs/` dir
 (unless `--force`), logs each sequence to `runs/difficulty_logs/`, and prints a summary.
 `--help` lists all options; anything after `--` is forwarded to `ppo_crl_difficulty.py`.
 
-`rew4` and `mag4` are not in the default list. `rew4` in particular is unsound for this
+`rew4` and the `*mag4` ladders are not in the default list. `rew4` in particular is unsound for this
 study as written: its mods replace the reward function, so the probe's return is measured
 on a different scale than the base-derived target, and the resulting ranking reflects
 reward scale rather than adaptation cost (`sparse_scoring` ranks "hardest" despite needing

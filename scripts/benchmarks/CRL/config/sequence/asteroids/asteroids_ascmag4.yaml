@@ -1,6 +1,6 @@
 # @package _global_
 ENV_ID: asteroids
-SEQUENCE: mag4
+SEQUENCE: ascmag4
 TASK_MODS:
   - []
   - ["asteroid_speed_x2"]

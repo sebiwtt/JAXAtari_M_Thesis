@@ -1,6 +1,6 @@
 # @package _global_
 ENV_ID: seaquest
-SEQUENCE: mag4
+SEQUENCE: ascmag4
 TASK_MODS:
   - []
   - ["oxygen_drain_x2"]   
