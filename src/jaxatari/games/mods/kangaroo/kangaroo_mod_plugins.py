@@ -1648,9 +1648,14 @@ class RewardPerFloorMod(JaxAtariInternalModPlugin):
     def _get_reward(self, previous_state: KangarooState, state: KangarooState):
         base = state.score - previous_state.score
 
-        # 172 (ground) -> 0, 124 -> 1, 76 -> 2, 28 (top / Joey) -> 3
+        # 172 (ground) -> 0, 124 -> 1, 76 -> 2, 28 (top / Joey) -> 3.
+        # Derived from the player's FEET (y + height), not last_stood_on_platform_y:
+        # that field never leaves {172, 1000} even while the agent is on a ladder,
+        # so the milestone below could never fire. Feet land exactly on the platform
+        # y (grounded y=148 with height 24, or y=156 with height 16 -> feet 172).
         def floor(player):
-            return jnp.clip(jnp.round((172 - player.last_stood_on_platform_y) / 48.0), 0, 4).astype(jnp.int32)
+            feet = player.y + player.height
+            return jnp.clip(jnp.round((172 - feet) / 48.0), 0, 3).astype(jnp.int32)
 
         teleported = (
             (state.lives < previous_state.lives)
@@ -1668,10 +1673,20 @@ class RewardPerFloorMod(JaxAtariInternalModPlugin):
             0,
         )
 
-        # Milestone: reached a higher floor this frame.
-        floor_up = jnp.where(~teleported & (floor(state.player) > floor(previous_state.player)), 1, 0)
+        # Height level: being on a higher floor pays EVERY frame. This is a function
+        # of the state, not a delta, so it cannot be farmed by riding a ladder up and
+        # down (the old +1-per-ascent milestone could be). It also survives the
+        # benchmark's reward clipping, and -- unlike the net-signed climb term, which
+        # cancels out as soon as the agent comes back down -- it actually makes
+        # leaving the ground floor the better policy.
+        # Gated on ~is_jumping: a hop from the ground briefly lifts the feet past the
+        # floor-1 threshold, and without this the agent could farm the bonus by
+        # jumping on the spot. Ladder frames (is_jumping False) still count, so a
+        # partial climb starts paying as soon as it passes the halfway mark.
+        on_foot = ~state.player.is_jumping
+        floor_level = jnp.where(teleported | ~on_foot, 0, floor(state.player))
 
-        return (base + self._CLIMB_PER_PX * climb_dy + self._FLOOR_BONUS * floor_up).astype(jnp.int32)
+        return (base + self._CLIMB_PER_PX * climb_dy + self._FLOOR_BONUS * floor_level).astype(jnp.int32)
 
 
 class ReachJoeyOnlyMod(JaxAtariInternalModPlugin):
