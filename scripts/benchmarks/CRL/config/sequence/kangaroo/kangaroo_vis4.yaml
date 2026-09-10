@@ -6,7 +6,7 @@ TASK_MODS:
   - ["change_background_color"]  
   - ["grayscale_theme"]   
   - ["change_monkey_color"]       
-  - ["chickens"]    
+  - ["_chickens"]    
 
 # --- More Options ---
 # change_score_color    
