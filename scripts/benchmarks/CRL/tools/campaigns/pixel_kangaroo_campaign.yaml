@@ -1,17 +1,15 @@
-gpus: [0, 1, 2, 3]
+gpus: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
 seeds: [1, 2, 3]
-
 sequences:
   - kangaroo_dyn4
   - kangaroo_vis4
   - kangaroo_rew4
-  - kangaroo_mag4
 
 methods: [ft, ewc, agem, packnet]
 modalities: [pixel]
 
 overrides:
   CRL_CURVE: true
-  PROJECT: "Thesis-Experiments"
+  PROJECT: "Thesis-Experiments-Pixel"
 
-# This campaign will resolve to 4 * 4 * 3 = 48 runs
+# This campaign will resolve to 4 * 3 * 3 = 36 runs
