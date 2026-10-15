@@ -47,9 +47,9 @@ from matplotlib.colors import Normalize, TwoSlopeNorm
 from matplotlib.lines import Line2D
 from matplotlib.patches import Patch
 
-from crl_data import (
+from scripts.benchmarks.CRL.thesis_files_scripts.visualization.crl_data import (
     BLUE_RAMP,
-    DEFAULT_AGG_ROOT,
+    DEFAULT_AGG_ROOTS,
     GRID,
     INK,
     INK_2,
@@ -349,7 +349,7 @@ def visualize_bars(agg: dict, out_dir: Path, fmt: str, dpi: int) -> Path:
 def main() -> None:
     ap = argparse.ArgumentParser(description="Retention/forgetting dashboard for seed-averaged CRL groups.")
     ap.add_argument("groups", nargs="*", help="group names (default: every aggregate)")
-    ap.add_argument("--agg-root", type=Path, default=DEFAULT_AGG_ROOT)
+    ap.add_argument("--agg-root", type=Path, nargs="+", default=DEFAULT_AGG_ROOTS)
     ap.add_argument("--out", type=Path, default=DEFAULT_OUT)
     ap.add_argument("--modality", nargs="+", default=None, help="filter: oc / pixel")
     ap.add_argument("--method", nargs="+", default=None, help="filter: ft / ewc / agem / packnet")

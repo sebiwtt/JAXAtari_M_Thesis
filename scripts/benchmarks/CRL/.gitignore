@@ -1,6 +1,9 @@
 outputs/
+thesis_files_scripts/
 runs/
-run_backups/
+oc_runs/
+mag_runs/
+pixel_runs/
 tables/
 wandb/
 obs_frames/

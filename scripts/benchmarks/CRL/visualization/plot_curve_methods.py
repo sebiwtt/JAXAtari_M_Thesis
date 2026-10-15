@@ -42,8 +42,8 @@ import matplotlib.pyplot as plt
 import matplotlib.transforms as mtransforms
 import numpy as np
 
-from crl_data import (
-    DEFAULT_AGG_ROOT,
+from scripts.benchmarks.CRL.thesis_files_scripts.visualization.crl_data import (
+    DEFAULT_AGG_ROOTS,
     GRID,
     INK,
     INK_2,
@@ -198,7 +198,7 @@ def figure_note(curves: list[dict], band: str) -> str:
 
 def main() -> None:
     ap = argparse.ArgumentParser(description="Base-env return curves, all CL methods on one axes.")
-    ap.add_argument("--agg-root", type=Path, default=DEFAULT_AGG_ROOT)
+    ap.add_argument("--agg-root", type=Path, nargs="+", default=DEFAULT_AGG_ROOTS)
     ap.add_argument("--out", type=Path, default=DEFAULT_OUT, help=f"output directory (default: {DEFAULT_OUT})")
     ap.add_argument("--sequence", nargs="+", default=None, help="default: all sequences")
     ap.add_argument("--modality", nargs="+", default=MODALITY_ORDER)

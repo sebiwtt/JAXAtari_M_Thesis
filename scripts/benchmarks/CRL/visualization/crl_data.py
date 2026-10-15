@@ -16,7 +16,10 @@ from pathlib import Path
 import numpy as np
 
 SCRIPT_DIR = Path(__file__).resolve().parent
-DEFAULT_AGG_ROOT = SCRIPT_DIR.parent / "runs" / "aggregated"
+# One aggregate root per modality (aggregate_seeds.py writes each next to its runs).
+DEFAULT_AGG_ROOTS = [SCRIPT_DIR.parent / "oc_runs" / "aggregated",
+                     SCRIPT_DIR.parent / "pixel_runs" / "aggregated",
+                     SCRIPT_DIR.parent / "mag_runs" / "aggregated"]
 
 # Fixed display order. Methods: the naive baseline first, then the CL methods in
 # increasing structural intervention (regularization -> gradient projection ->
@@ -36,6 +39,10 @@ METHOD_LABEL = {"ft": "Fine-tuning", "ewc": "EWC", "agem": "A-GEM", "packnet": "
 # curve plot ships.
 SERIES = ["#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4", "#008300", "#4a3aa7", "#e34948"]
 METHOD_COLOR = {"ft": SERIES[0], "ewc": SERIES[1], "agem": SERIES[2], "packnet": SERIES[3]}
+# Modality pair for figures that compare OC and pixel directly (methods then sit on
+# the x-axis, so the method colours stay free). Drawn from slots the methods don't
+# use; validated as a pair on white: CVD dE 22.7 (protan), normal 33.6, both >= 3:1.
+MODALITY_COLOR = {"oc": SERIES[6], "pixel": SERIES[7]}
 # Text/structure tokens: never use a series color for text.
 INK, INK_2, MUTED, GRID = "#0b0b0b", "#52514e", "#898781", "#e1e0d9"
 
@@ -70,7 +77,7 @@ MODALITY_LABEL = {"oc": "Object-centric", "pixel": "Pixel"}
 ENV_LABEL = {"pong": "Pong", "breakout": "Breakout", "freeway": "Freeway",
              "asteroids": "Asteroids", "seaquest": "Seaquest", "kangaroo": "Kangaroo"}
 
-# runs/aggregated/<env>_<method>_<sequence>_<modality>
+# <modality>_runs/aggregated/<env>_<method>_<sequence>_<modality>
 GROUP_RE = re.compile(r"^(?P<env>[^_]+)_(?P<method>[^_]+)_(?P<sequence>[^_]+)_(?P<modality>oc|pixel)$")
 
 # How each metric should be read and printed. `higher_better` drives which cell a
@@ -116,20 +123,30 @@ def load_aggregate(path: str | Path) -> dict:
     return agg
 
 
-def load_all(agg_root: str | Path = DEFAULT_AGG_ROOT) -> dict[str, dict]:
-    """All aggregates under `agg_root`, keyed by group name."""
-    agg_root = Path(agg_root)
-    if not agg_root.is_dir():
+def load_all(agg_roots: str | Path | list = DEFAULT_AGG_ROOTS) -> dict[str, dict]:
+    """All aggregates under the given root(s), keyed by group name. Roots that do
+    not exist are skipped (e.g. a modality with no runs yet), as long as at least
+    one does."""
+    if isinstance(agg_roots, (str, Path)):
+        agg_roots = [agg_roots]
+    roots = [Path(r) for r in agg_roots]
+    present = [r for r in roots if r.is_dir()]
+    if not present:
         raise SystemExit(
-            f"{agg_root} not found - run visualization/aggregate_seeds.py first"
+            f"none of {', '.join(map(str, roots))} found - run visualization/aggregate_seeds.py first"
         )
     out = {}
-    for d in sorted(agg_root.iterdir()):
-        if (d / "aggregate.json").exists():
-            agg = load_aggregate(d)
-            out[agg["group"]] = agg
+    for root in present:
+        for d in sorted(root.iterdir()):
+            if (d / "aggregate.json").exists():
+                agg = load_aggregate(d)
+                if agg["group"] in out:
+                    raise SystemExit(f"group {agg['group']!r} found in more than one aggregate root "
+                                     f"({out[agg['group']]['_root']} and {root})")
+                agg["_root"] = str(root)
+                out[agg["group"]] = agg
     if not out:
-        raise SystemExit(f"no aggregate.json found under {agg_root}")
+        raise SystemExit(f"no aggregate.json found under {', '.join(map(str, present))}")
     return out
 
 

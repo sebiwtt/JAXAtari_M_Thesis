@@ -32,8 +32,8 @@ from pathlib import Path
 
 import numpy as np
 
-from crl_data import (
-    DEFAULT_AGG_ROOT,
+from scripts.benchmarks.CRL.thesis_files_scripts.visualization.crl_data import (
+    DEFAULT_AGG_ROOTS,
     ENV_LABEL,
     ENV_ORDER,
     METHOD_LABEL,
@@ -115,7 +115,7 @@ def pooled_cell(bundles: list[dict], kind: str, dp: int, n_expected: int) -> Cel
         kind, std / np.sqrt(vals.size)  # ci95 handled below
     )
     if kind == "ci95":
-        from aggregate_seeds import T95
+        from scripts.benchmarks.CRL.thesis_files_scripts.visualization.aggregate_seeds import T95
         spread = T95.get(vals.size - 1, 1.960) * std / np.sqrt(vals.size)
     return Cell(float(np.mean(vals)), float(spread), vals.size, n_expected, dp)
 
@@ -278,8 +278,9 @@ def spread_note(kind: str, blocks, fmt: str = "markdown") -> str:
 
 def main() -> None:
     ap = argparse.ArgumentParser(description="Result tables from the seed-averaged CRL aggregates.")
-    ap.add_argument("--agg-root", type=Path, default=DEFAULT_AGG_ROOT,
-                    help=f"directory of aggregate dirs (default: {DEFAULT_AGG_ROOT})")
+    ap.add_argument("--agg-root", type=Path, nargs="+", default=DEFAULT_AGG_ROOTS,
+                    help="directories of aggregate dirs (default: "
+                         + ", ".join(map(str, DEFAULT_AGG_ROOTS)) + ")")
     ap.add_argument("--metric", nargs="+", default=["mean_forgetting"],
                     choices=sorted(METRIC_SPEC), help="one table per metric (default: mean_forgetting)")
     ap.add_argument("--modality", nargs="+", default=MODALITY_ORDER, help="oc / pixel (default: both)")

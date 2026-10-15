@@ -1,8 +1,11 @@
 # =============================================================================
 # Aggregate seed replicates of a CRL run into a single file
 # =============================================================================
-# Collapses runs/<group>_1, <group>_2, <group>_3 (the seed replicates written by
-# ppo_crl_continual.py) into runs/aggregated/<group>/aggregate.{json,npz}.
+# Collapses <runs-root>/<group>_1, <group>_2, <group>_3 (the seed replicates
+# written by ppo_crl_continual.py) into <runs-root>/aggregated/<group>/aggregate.{json,npz}.
+# The run roots are oc_runs/, pixel_runs/ and mag_runs/ (the harness writes to runs/;
+# finished runs are moved into the root for their batch), each aggregated in place.
+# mag_runs holds the object-centric magnitude-ordering sequences (asc/desc/randmag4).
 #
 # What is aggregated, and how:
 #
@@ -29,8 +32,9 @@
 #   Retention block is the authoritative one.
 #
 # Usage:
-#   python visualization/aggregate_seeds.py                       # every group under runs/
-#   python visualization/aggregate_seeds.py runs/pong_ft_dyn4_oc_*
+#   python visualization/aggregate_seeds.py                       # every group under oc_runs/ and pixel_runs/
+#   python visualization/aggregate_seeds.py --runs-root pixel_runs  # one modality only
+#   python visualization/aggregate_seeds.py oc_runs/pong_ft_dyn4_oc_*
 #   python visualization/aggregate_seeds.py --out-root /tmp/agg --min-seeds 2
 # =============================================================================
 
@@ -47,7 +51,8 @@ from pathlib import Path
 import numpy as np
 
 SCRIPT_DIR = Path(__file__).resolve().parent
-DEFAULT_RUNS_ROOT = SCRIPT_DIR.parent / "runs"
+DEFAULT_RUNS_ROOTS = [SCRIPT_DIR.parent / "oc_runs", SCRIPT_DIR.parent / "pixel_runs",
+                      SCRIPT_DIR.parent / "mag_runs"]
 DEFAULT_OUT_DIRNAME = "aggregated"
 
 # runs/<group>_<seed>; seed is the trailing integer of the dir name.
@@ -119,7 +124,7 @@ def load_run(run_dir: str | Path) -> dict:
 
 
 def discover_groups(runs_root: Path, out_root: Path) -> dict[str, list[Path]]:
-    """Map <group> -> [run dirs], from every runs/<group>_<seed> holding a matrix."""
+    """Map <group> -> [run dirs], from every <runs_root>/<group>_<seed> holding a matrix."""
     groups: dict[str, list[Path]] = defaultdict(list)
     for entry in sorted(runs_root.iterdir()):
         if not entry.is_dir() or entry.resolve() == out_root.resolve():
@@ -346,43 +351,54 @@ def print_summary(agg: dict) -> None:
 def main() -> None:
     ap = argparse.ArgumentParser(description="Average seed replicates of a CRL run into one file.")
     ap.add_argument("runs", nargs="*", type=Path,
-                    help="run dirs (runs/<group>_<seed>); default: every group under --runs-root")
-    ap.add_argument("--runs-root", type=Path, default=DEFAULT_RUNS_ROOT,
-                    help=f"directory holding the run dirs (default: {DEFAULT_RUNS_ROOT})")
+                    help="run dirs (<root>/<group>_<seed>); default: every group under --runs-root")
+    ap.add_argument("--runs-root", type=Path, nargs="+", default=None,
+                    help="directories holding the run dirs (default: whichever of "
+                         + ", ".join(str(p) for p in DEFAULT_RUNS_ROOTS) + " exist)")
     ap.add_argument("--out-root", type=Path, default=None,
-                    help=f"output root (default: <runs-root>/{DEFAULT_OUT_DIRNAME})")
+                    help=f"output root (default: {DEFAULT_OUT_DIRNAME}/ inside the directory holding the runs)")
     ap.add_argument("--min-seeds", type=int, default=2,
                     help="skip groups with fewer replicates than this (default: 2)")
     ap.add_argument("--quiet", action="store_true", help="only print the output paths")
     args = ap.parse_args()
 
-    out_root = args.out_root or args.runs_root / DEFAULT_OUT_DIRNAME
-
+    # (out_root, {group: [run dirs]}) per source; each source aggregates next to its runs.
+    jobs: list[tuple[Path, dict[str, list[Path]]]] = []
     if args.runs:
-        groups: dict[str, list[Path]] = defaultdict(list)
+        by_root: dict[Path, dict[str, list[Path]]] = defaultdict(lambda: defaultdict(list))
         for d in args.runs:
-            groups[group_of(d)[0]].append(d)
-        groups = dict(groups)
+            by_root[d.parent][group_of(d)[0]].append(d)
+        for root, groups in by_root.items():
+            jobs.append((args.out_root or root / DEFAULT_OUT_DIRNAME, dict(groups)))
     else:
-        if not args.runs_root.is_dir():
-            raise SystemExit(f"--runs-root {args.runs_root} is not a directory")
-        groups = discover_groups(args.runs_root, out_root)
+        if args.runs_root is not None:
+            roots = args.runs_root
+            for root in roots:
+                if not root.is_dir():
+                    raise SystemExit(f"--runs-root {root} is not a directory")
+        else:
+            roots = [r for r in DEFAULT_RUNS_ROOTS if r.is_dir()]
+            if not roots:
+                raise SystemExit("none of " + ", ".join(str(r) for r in DEFAULT_RUNS_ROOTS) + " exist")
+        for root in roots:
+            out_root = args.out_root or root / DEFAULT_OUT_DIRNAME
+            jobs.append((out_root, discover_groups(root, out_root)))
 
-    if not groups:
+    if not any(groups for _, groups in jobs):
         raise SystemExit("no runs found")
 
-    written = 0
-    for group, dirs in sorted(groups.items()):
-        if len(dirs) < args.min_seeds:
-            print(f"[agg] skipping {group}: only {len(dirs)} seed(s) < --min-seeds {args.min_seeds}")
-            continue
-        agg = aggregate_group(group, dirs)
-        write_aggregate(agg, out_root / group)
-        written += 1
-        if not args.quiet:
-            print_summary(agg)
-
-    print(f"\n[agg] wrote {written} aggregate(s) to {out_root}{os.sep}<group>/aggregate.{{json,npz}}")
+    for out_root, groups in jobs:
+        written = 0
+        for group, dirs in sorted(groups.items()):
+            if len(dirs) < args.min_seeds:
+                print(f"[agg] skipping {group}: only {len(dirs)} seed(s) < --min-seeds {args.min_seeds}")
+                continue
+            agg = aggregate_group(group, dirs)
+            write_aggregate(agg, out_root / group)
+            written += 1
+            if not args.quiet:
+                print_summary(agg)
+        print(f"\n[agg] wrote {written} aggregate(s) to {out_root}{os.sep}<group>/aggregate.{{json,npz}}")
 
 
 if __name__ == "__main__":
